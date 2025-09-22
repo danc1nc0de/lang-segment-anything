@@ -11,10 +11,10 @@ import uuid
 from nuscenes.utils.data_classes import LidarPointCloud
 from pyquaternion import Quaternion
 
-
 DATA_ROOT = '/home/danc1nc0de/Datasets/nuScenes/v1.0-mini'
 TXT_PROMPT = 'wheel.'
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+
 
 def seg_wheels(model, img_data):
     img_path = os.path.join(DATA_ROOT, img_data['filename'])
@@ -25,7 +25,8 @@ def seg_wheels(model, img_data):
 def draw_boxes(img, boxes_2d):
     img_draw = img.copy()
     for box_2d in boxes_2d:
-        cv2.rectangle(img_draw, (box_2d[0].astype(np.int32), box_2d[1].astype(np.int32)), (box_2d[2].astype(np.int32), box_2d[3].astype(np.int32)), (0, 255, 0), 2)
+        cv2.rectangle(img_draw, (box_2d[0].astype(np.int32), box_2d[1].astype(np.int32)),
+                      (box_2d[2].astype(np.int32), box_2d[3].astype(np.int32)), (0, 255, 0), 2)
     return img_draw
 
 
@@ -155,8 +156,8 @@ def update_association_info(wheels_result, boxes_2d, boxes_3d):
 
 
 def post_process_result(wheels_result, boxes_3d, camera_intrinsic, img_size):
-    boxes_3d = filtering_non_vehicles(boxes_3d) # only keep vehicles
-    boxes_2d = get_boxes_2d(boxes_3d, camera_intrinsic, img_size) # get boxes_2d from boxes_3d (cam coordinate)
+    boxes_3d = filtering_non_vehicles(boxes_3d)  # only keep vehicles
+    boxes_2d = get_boxes_2d(boxes_3d, camera_intrinsic, img_size)  # get boxes_2d from boxes_3d (cam coordinate)
     # wheels_result = del_small_wheels(wheels_result)
     wheels_result = del_non_vehicle_wheels(wheels_result, boxes_2d)
     return wheels_result, boxes_3d, boxes_2d
@@ -172,7 +173,7 @@ def get_boxes_2d(boxes_3d, camera_intrinsic, img_size):
         v_min, v_max = corners_img[1].min(), corners_img[1].max()
         u_min, u_max = np.clip(u_min, 0, width), np.clip(u_max, 0, width)
         v_min, v_max = np.clip(v_min, 0, height), np.clip(v_max, 0, height)
-        boxes_2d.append(np.array([u_min, v_min, u_max, v_max])) # xyxy
+        boxes_2d.append(np.array([u_min, v_min, u_max, v_max]))  # xyxy
     return boxes_2d
 
 
@@ -252,8 +253,9 @@ def main():
                 img_size = (cam_data['height'], cam_data['width'])
                 wheels_result = seg_wheels(model, cam_data)
                 _, boxes_3d, camera_intrinsic = nusc.get_sample_data(sample['data'][sensor_name],
-                                                                  box_vis_level=BoxVisibility.ANY)
-                wheels_result, boxes_3d, boxes_2d = post_process_result(wheels_result, boxes_3d, camera_intrinsic, img_size)
+                                                                     box_vis_level=BoxVisibility.ANY)
+                wheels_result, boxes_3d, boxes_2d = post_process_result(wheels_result, boxes_3d, camera_intrinsic,
+                                                                        img_size)
                 pcs_3d, pcs_2d = map_pointcloud_to_image(lidar_data, cam_data, nusc)
                 wheels_result = update_wheels_coordinate(wheels_result, pcs_3d, pcs_2d)
                 wheels_result = update_association_info(wheels_result, boxes_2d, boxes_3d)
