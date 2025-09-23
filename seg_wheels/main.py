@@ -10,11 +10,14 @@ from nuscenes.utils.geometry_utils import BoxVisibility, view_points
 import uuid
 from nuscenes.utils.data_classes import LidarPointCloud
 from pyquaternion import Quaternion
+import json
 
 DATA_ROOT = '/home/danc1nc0de/Datasets/nuScenes/v1.0-mini'
 TXT_PROMPT = 'wheel.'
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
+json_cnt = 0
+json_result_lst = []
 
 def seg_wheels(model, img_data):
     img_path = os.path.join(DATA_ROOT, img_data['filename'])
@@ -235,6 +238,32 @@ def update_wheels_coordinate(wheels_result, pcs_3d, pcs_2d):
     return wheels_result
 
 
+def save_result_json(wheels_result, sensor_name):
+    global json_cnt, json_result_lst
+    print(json_cnt, len(json_result_lst))
+    json_path_root = os.path.join(DATA_ROOT, 'v1.0-mini')
+    num_wheels = len(wheels_result['labels'])
+    for idx_wheel in range(num_wheels):
+        json_result = {}
+        json_result['token'] = uuid.uuid4().hex
+        json_result['sensor_name'] = sensor_name
+        json_result['sample_annotation_token'] = wheels_result['assoc_info'][idx_wheel]
+        json_result['box'] = wheels_result['boxes'][idx_wheel].tolist()
+        json_result['box_score'] = wheels_result['scores'][idx_wheel].item()
+        json_result['mask'] = np.argwhere(wheels_result['masks'][idx_wheel] == 1).tolist()
+        if num_wheels == 1:
+            json_result['mask_score'] = wheels_result['mask_scores'].item()
+        else:
+            json_result['mask_score'] = wheels_result['mask_scores'][idx_wheel].item()
+        json_result_lst.append(json_result)
+    if len(json_result_lst) > 1000:
+        json_path = os.path.join(json_path_root, 'wheel_annotation_' + str(json_cnt) + '.json')
+        with open(json_path, 'w') as f:
+            json.dump(json_result_lst, f, indent=2)
+        json_result_lst = []
+        json_cnt += 1
+
+
 def main():
     model = LangSAM(sam_type='sam2.1_hiera_large',
                     sam_ckpt_path='../checkpoints/sam2.1_hiera_large.pt',
@@ -260,6 +289,7 @@ def main():
                 wheels_result = update_wheels_coordinate(wheels_result, pcs_3d, pcs_2d)
                 wheels_result = update_association_info(wheels_result, boxes_2d, boxes_3d)
                 save_result_img(cam_data, wheels_result, boxes_2d, sensor_name)
+                save_result_json(wheels_result, sensor_name)
 
 
 if __name__ == '__main__':
