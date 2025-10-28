@@ -10,34 +10,39 @@ DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes', VERSION)
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
-def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego):
-    wheel_yaw_valid = -1
+def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1):
+    wheel_yaw_valid = 0
     if np.abs(wheel_yaw - box_ego.orientation.angle) < np.radians(5.0):
-        wheel_yaw_valid = 0
+        wheel_yaw_valid = 1
+        # wheel_direction_ego = wheel_direction_ego
+        # wheel_yaw = wheel_yaw
+        # P_i_0, P_i_1 = P_i_0, P_i_1
     elif np.abs(wheel_yaw + np.pi - box_ego.orientation.angle) < np.radians(5.0):
         wheel_yaw_valid = 1
+        wheel_direction_ego = -wheel_direction_ego
+        wheel_yaw = wheel_yaw + np.pi
+        P_i_0, P_i_1 = P_i_1, P_i_0
     elif np.abs(wheel_yaw - np.pi - box_ego.orientation.angle) < np.radians(5.0):
-        wheel_yaw_valid = 2
+        wheel_yaw_valid = 1
+        wheel_direction_ego = -wheel_direction_ego
+        wheel_yaw = wheel_yaw - np.pi
+        P_i_0, P_i_1 = P_i_1, P_i_0
     else:
-        wheel_yaw_valid = -1
+        wheel_yaw_valid = 0
+    yaw_diff = np.abs(wheel_yaw - box_ego.orientation.angle)
 
-    if wheel_yaw_valid >= 0:
-        box_ego.wheel_direction_valid = True
-        if box_ego.wheel_direction is None:
-            box_ego.wheel_direction = []
-        if box_ego.wheel_yaw is None:
-            box_ego.wheel_yaw = []
-        if wheel_yaw_valid == 0:
-            box_ego.wheel_direction.append(wheel_direction_ego)
-            box_ego.wheel_yaw.append(wheel_yaw)
-        elif wheel_yaw_valid == 1:
-            box_ego.wheel_direction.append(-wheel_direction_ego)
-            box_ego.wheel_yaw.append(wheel_yaw + np.pi)
-        elif wheel_yaw_valid == 2:
-            box_ego.wheel_direction.append(-wheel_direction_ego)
-            box_ego.wheel_yaw.append(wheel_yaw - np.pi)
+    if wheel_yaw_valid > 0:
+        # already have a valid wheel direction
+        if box_ego.wheel_direction_valid:
+            if yaw_diff < np.abs(box_ego.wheel_yaw - box_ego.orientation.angle):
+                box_ego.wheel_direction = wheel_direction_ego
+                box_ego.wheel_yaw = wheel_yaw
+                box_ego.wheel_ground_point = [P_i_0[0], P_i_0[1], P_i_1[0], P_i_1[1]]
         else:
-            assert False, 'invalid wheel yaw'
+            box_ego.wheel_direction_valid = True
+            box_ego.wheel_direction = wheel_direction_ego
+            box_ego.wheel_yaw = wheel_yaw
+            box_ego.wheel_ground_point = [P_i_0[0], P_i_0[1], P_i_1[0], P_i_1[1]]
 
 
 def get_wheel_ground_point(wheel_anno):
@@ -67,7 +72,7 @@ def update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_senso
                 wheel_direction_ego = U @ ((u.T @ P_i_0) * P_i_1 - (u.T @ P_i_1) * P_i_0)
                 wheel_yaw = np.arctan2(-wheel_direction_ego[1], wheel_direction_ego[0])
                 wheel_yaw_deg = np.degrees(wheel_yaw)
-                update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego)
+                update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1)
 
 
 def filtering_not_valid_wheels(wheel_annos_lst):
