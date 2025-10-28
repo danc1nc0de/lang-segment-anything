@@ -4,25 +4,114 @@ from tqdm import tqdm
 import numpy as np
 from pyquaternion import Quaternion
 import json
+from nuscenes.utils.geometry_utils import box_in_image, BoxVisibility
+from lang_sam.utils import draw_image, load_image
+from PIL import Image
 
 VERSION = 'v1.0-mini'
 DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes', VERSION)
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
-def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1):
+def vis_wheel_direction(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data):
+    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
+    for box in boxes_ego:
+        if box.wheel_direction_valid:
+            # move box to sensor coord system.
+            box.translate(-np.array(calibrated_sensor_data['translation']))
+            box.rotate(Quaternion(calibrated_sensor_data['rotation']).inverse)
+            # filtering out of image
+            if not box_in_image(box, cam_intrinsic, (img.shape[1], img.shape[0]), vis_level=BoxVisibility.ANY):
+                # recover to ego coordinate
+                box.rotate(Quaternion(calibrated_sensor_data['rotation']))
+                box.translate(np.array(calibrated_sensor_data['translation']))
+                continue
+            box.render_cv2(img, view=cam_intrinsic, normalize=True, colors=((0, 0, 255), (0, 0, 255), (0, 0, 255)))
+            # recover to ego coordinate
+            box.rotate(Quaternion(calibrated_sensor_data['rotation']))
+            box.translate(np.array(calibrated_sensor_data['translation']))
+    return img
+
+
+def vis_wheels(img, boxes_ego_tot, wheel_annos_tot, sensor_name, sample_sensor_data):
+    wheel_scores = []
+    wheel_boxes = []
+    wheel_masks = []
+    wheel_labels = []
+    for box in boxes_ego_tot:
+        if box.name.split('.')[0] == 'vehicle':
+            token = box.token
+            if token in wheel_annos_tot[sensor_name]:
+                for wheel in wheel_annos_tot[sensor_name][token]:
+                    wheel_scores.append(wheel['box_score'])
+                    wheel_boxes.append(wheel['box'])
+                    wheel_labels.append('wheel')
+                    wheel_mask = np.zeros((sample_sensor_data['height'], sample_sensor_data['width']))
+                    for x, y in wheel['mask']:
+                        wheel_mask[x, y] = 1
+                    wheel_masks.append(wheel_mask)
+    if len(wheel_boxes):
+        wheel_scores = np.array(wheel_scores)
+        wheel_boxes = np.array(wheel_boxes)
+        wheel_masks = np.array(wheel_masks)
+        img = draw_image(img, wheel_masks, wheel_boxes, wheel_scores, wheel_labels)
+    return img
+
+
+def vis_boxes(img, boxes_ego_tot, calibrated_sensor_data):
+    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
+    for box in boxes_ego_tot:
+        # filtering non-vehicle
+        if box.name.split('.')[0] != 'vehicle':
+            continue
+        # move box to sensor coord system.
+        box.translate(-np.array(calibrated_sensor_data['translation']))
+        box.rotate(Quaternion(calibrated_sensor_data['rotation']).inverse)
+        # filtering out of image
+        if not box_in_image(box, cam_intrinsic, (img.shape[1], img.shape[0]), vis_level=BoxVisibility.ANY):
+            # recover to ego coordinate
+            box.rotate(Quaternion(calibrated_sensor_data['rotation']))
+            box.translate(np.array(calibrated_sensor_data['translation']))
+            continue
+        box.render_cv2(img, view=cam_intrinsic, normalize=True, colors=((255, 0, 0), (255, 0, 0), (255, 0, 0)))
+        # recover to ego coordinate
+        box.rotate(Quaternion(calibrated_sensor_data['rotation']))
+        box.translate(np.array(calibrated_sensor_data['translation']))
+    return img
+
+
+def vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_tot, wheel_annos,
+        calibrated_sensor_data):
+    img_path = os.path.join(DATA_ROOT, sample_sensor_data['filename'])
+    img = np.asarray(load_image(img_path)).copy()
+
+    output_path = os.path.join(DATA_ROOT, 'wheels', sensor_name)
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    img_name = sample_sensor_data['filename'].split('/')[-1].split('.')[0]
+    output_path = os.path.join(output_path, img_name + '_wheels.jpg')
+
+    img = vis_boxes(img, boxes_ego_tot, calibrated_sensor_data)
+    img = vis_wheels(img, boxes_ego_tot, wheel_annos_tot, sensor_name, sample_sensor_data)
+    img = vis_wheel_direction(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
+
+    img = Image.fromarray(np.uint8(img)).convert("RGB")
+    img.save(output_path)
+
+
+def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, thr=np.radians(10.0)):
     wheel_yaw_valid = 0
-    if np.abs(wheel_yaw - box_ego.orientation.angle) < np.radians(5.0):
+    if np.abs(wheel_yaw - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         # wheel_direction_ego = wheel_direction_ego
         # wheel_yaw = wheel_yaw
         # P_i_0, P_i_1 = P_i_0, P_i_1
-    elif np.abs(wheel_yaw + np.pi - box_ego.orientation.angle) < np.radians(5.0):
+    elif np.abs(wheel_yaw + np.pi - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw + np.pi
         P_i_0, P_i_1 = P_i_1, P_i_0
-    elif np.abs(wheel_yaw - np.pi - box_ego.orientation.angle) < np.radians(5.0):
+    elif np.abs(wheel_yaw - np.pi - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw - np.pi
@@ -138,6 +227,7 @@ def load_wheel_annos():
 
 
 def main():
+    wheel_annos_tot = load_wheel_annos()
     wheel_annos = load_wheel_annos()
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
     for scene in tqdm(nusc.scene):
@@ -150,9 +240,11 @@ def main():
                 sample_sensor_data = nusc.get('sample_data', sample['data'][sensor_name])
                 # calibration data of sensor to ego
                 calibrated_sensor_data = nusc.get('calibrated_sensor', sample_sensor_data['calibrated_sensor_token'])
-                boxes_ego = get_boxes_ego(nusc, sample, sensor_name)
-                boxes_ego = filtering_boxes(boxes_ego, wheel_annos, sensor_name)
+                boxes_ego_tot = get_boxes_ego(nusc, sample, sensor_name)
+                boxes_ego = filtering_boxes(boxes_ego_tot, wheel_annos, sensor_name)
                 update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
+                vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_tot, wheel_annos,
+                    calibrated_sensor_data)
 
 
 if __name__ == '__main__':
