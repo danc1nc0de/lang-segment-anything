@@ -193,15 +193,21 @@ def update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_senso
                                            wheel_token_1)
 
 
-def filtering_not_valid_wheels(wheel_annos_lst):
-    wheel_annos_lst_output = []
-    for wheel_annos in wheel_annos_lst:
-        u_min, v_min, u_max, v_max = wheel_annos['box']
-        width, height = u_max - u_min, v_max - v_min
-        if height < width * 0.95:
-            continue
-        wheel_annos_lst_output.append(wheel_annos)
-    return wheel_annos_lst_output
+def filtering_not_valid_wheels(wheel_annos):
+    wheel_annos_output = {}
+    for sensor_name in wheel_annos:
+        if sensor_name not in wheel_annos_output:
+            wheel_annos_output[sensor_name] = {}
+        for box_token in wheel_annos[sensor_name]:
+            if box_token not in wheel_annos_output[sensor_name]:
+                wheel_annos_output[sensor_name][box_token] = []
+            for wheel_anno in wheel_annos[sensor_name][box_token]:
+                u_min, v_min, u_max, v_max = wheel_anno['box']
+                width, height = u_max - u_min, v_max - v_min
+                if height < width * 0.95:
+                    continue
+                wheel_annos_output[sensor_name][box_token].append(wheel_anno)
+    return wheel_annos_output
 
 
 def filtering_boxes(boxes_ego, wheel_annos, sensor_name):
@@ -213,11 +219,6 @@ def filtering_boxes(boxes_ego, wheel_annos, sensor_name):
         # filtering no wheels
         if box_ego.token not in wheel_annos[sensor_name]:
             continue
-        # filtering less than 2 wheels
-        if len(wheel_annos[sensor_name][box_ego.token]) < 2:
-            continue
-        # filtering not valid wheels
-        wheel_annos[sensor_name][box_ego.token] = filtering_not_valid_wheels(wheel_annos[sensor_name][box_ego.token])
         # filtering less than 2 wheels
         if len(wheel_annos[sensor_name][box_ego.token]) < 2:
             continue
@@ -257,7 +258,6 @@ def load_wheel_annos():
 
 def main():
     wheel_annos_tot = load_wheel_annos()
-    wheel_annos = load_wheel_annos()
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
     for scene in tqdm(nusc.scene):
         first_sample_token = scene['first_sample_token']
@@ -270,6 +270,8 @@ def main():
                 # calibration data of sensor to ego
                 calibrated_sensor_data = nusc.get('calibrated_sensor', sample_sensor_data['calibrated_sensor_token'])
                 boxes_ego_tot = get_boxes_ego(nusc, sample, sensor_name)
+                # filtering not valid wheels
+                wheel_annos = filtering_not_valid_wheels(wheel_annos_tot)
                 boxes_ego = filtering_boxes(boxes_ego_tot, wheel_annos, sensor_name)
                 update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
                 vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_tot, wheel_annos,
