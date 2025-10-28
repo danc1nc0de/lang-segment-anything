@@ -14,6 +14,33 @@ DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes', VERSION)
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
+def vis_wheel_direction_tot(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data):
+    # calc calibration
+    R_sensor_to_ego = Quaternion(calibrated_sensor_data['rotation']).rotation_matrix
+    K = np.array(calibrated_sensor_data['camera_intrinsic'])
+    U = R_sensor_to_ego @ np.linalg.inv(K)
+    u = U[2, :]
+    for box_ego in boxes_ego:
+        wheel_anno_lst = wheel_annos[sensor_name][box_ego.token]
+        for i in range(len(wheel_anno_lst)):
+            wheel_anno_0 = wheel_anno_lst[i]
+            wheel_token_0 = wheel_anno_0['token']
+            u_grd_0, v_grd_0 = get_wheel_ground_point(wheel_anno_0)
+            P_i_0 = np.array([u_grd_0, v_grd_0, 1.0])
+            for j in range(i + 1, len(wheel_anno_lst)):
+                wheel_anno_1 = wheel_anno_lst[j]
+                wheel_token_1 = wheel_anno_1['token']
+                u_grd_1, v_grd_1 = get_wheel_ground_point(wheel_anno_1)
+                P_i_1 = np.array([u_grd_1, v_grd_1, 1.0])
+                wheel_direction_ego = U @ ((u.T @ P_i_0) * P_i_1 - (u.T @ P_i_1) * P_i_0)
+                wheel_yaw = np.arctan2(wheel_direction_ego[1], wheel_direction_ego[0])
+                wheel_yaw_deg = np.degrees(wheel_yaw)
+                img = cv2.line(img, (int(u_grd_0), int(v_grd_0)), (int(u_grd_1), int(v_grd_1)), (0, 255, 0), 2)
+                img = cv2.putText(img, '%.2f' % wheel_yaw, (int((u_grd_0 + u_grd_1) / 2), int((v_grd_0 + v_grd_1) / 2)),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+    return img
+
+
 def draw_wheels(img, wheel_masks, wheel_boxes, color=(0, 255, 255)):
     for wheel_box in wheel_boxes:
         u_min, v_min, u_max, v_max = wheel_box
@@ -95,11 +122,11 @@ def vis_boxes(img, boxes_ego_tot, calibrated_sensor_data):
             continue
         box.render_cv2(img, view=cam_intrinsic, normalize=True, colors=((255, 0, 0), (255, 0, 0), (255, 0, 0)))
         corners = view_points(box.corners(), cam_intrinsic, normalize=True)[:2, :]
-        center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
+        center_top = np.mean(corners.T[[0, 1, 5, 4]], axis=0)
         # recover to ego coordinate
         box.rotate(Quaternion(calibrated_sensor_data['rotation']))
         box.translate(np.array(calibrated_sensor_data['translation']))
-        img = cv2.putText(img, '%.2f' % box.orientation.angle, (int(center_bottom[0]), int(center_bottom[1])),
+        img = cv2.putText(img, '%.2f' % box.orientation.angle, (int(center_top[0]), int(center_top[1])),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
     return img
 
@@ -118,13 +145,14 @@ def vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_t
     img = vis_boxes(img, boxes_ego_tot, calibrated_sensor_data)
     img = vis_wheels(img, boxes_ego_tot, wheel_annos_tot, sensor_name, sample_sensor_data)
     img = vis_wheel_direction(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
+    img = vis_wheel_direction_tot(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
 
     img = Image.fromarray(np.uint8(img)).convert("RGB")
     img.save(output_path)
 
 
 def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, wheel_token_0, wheel_token_1,
-                               thr=np.radians(10.0)):
+                               thr=np.radians(15.0)):
     wheel_yaw_valid = 0
     if np.abs(wheel_yaw - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
@@ -191,7 +219,7 @@ def update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_senso
                 u_grd_1, v_grd_1 = get_wheel_ground_point(wheel_anno_1)
                 P_i_1 = np.array([u_grd_1, v_grd_1, 1.0])
                 wheel_direction_ego = U @ ((u.T @ P_i_0) * P_i_1 - (u.T @ P_i_1) * P_i_0)
-                wheel_yaw = np.arctan2(-wheel_direction_ego[1], wheel_direction_ego[0])
+                wheel_yaw = np.arctan2(wheel_direction_ego[1], wheel_direction_ego[0])
                 wheel_yaw_deg = np.degrees(wheel_yaw)
                 update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, wheel_token_0,
                                            wheel_token_1)
