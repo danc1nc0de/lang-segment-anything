@@ -4,7 +4,7 @@ from tqdm import tqdm
 import numpy as np
 from pyquaternion import Quaternion
 import json
-from nuscenes.utils.geometry_utils import box_in_image, BoxVisibility
+from nuscenes.utils.geometry_utils import box_in_image, BoxVisibility, view_points
 from lang_sam.utils import draw_image, load_image
 from PIL import Image
 import cv2
@@ -94,9 +94,13 @@ def vis_boxes(img, boxes_ego_tot, calibrated_sensor_data):
             box.translate(np.array(calibrated_sensor_data['translation']))
             continue
         box.render_cv2(img, view=cam_intrinsic, normalize=True, colors=((255, 0, 0), (255, 0, 0), (255, 0, 0)))
+        corners = view_points(box.corners(), cam_intrinsic, normalize=True)[:2, :]
+        center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
         # recover to ego coordinate
         box.rotate(Quaternion(calibrated_sensor_data['rotation']))
         box.translate(np.array(calibrated_sensor_data['translation']))
+        img = cv2.putText(img, '%.2f' % box.orientation.angle, (int(center_bottom[0]), int(center_bottom[1])),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
     return img
 
 
