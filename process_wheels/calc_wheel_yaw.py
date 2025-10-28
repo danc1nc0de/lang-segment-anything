@@ -7,14 +7,28 @@ import json
 from nuscenes.utils.geometry_utils import box_in_image, BoxVisibility
 from lang_sam.utils import draw_image, load_image
 from PIL import Image
+import cv2
 
 VERSION = 'v1.0-mini'
 DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes', VERSION)
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
+def draw_wheels(img, wheel_masks, wheel_boxes, color=(0, 255, 255)):
+    for wheel_box in wheel_boxes:
+        u_min, v_min, u_max, v_max = wheel_box
+        img = cv2.rectangle(img, (int(u_min), int(v_min)), (int(u_max), int(v_max)), color, 2)
+    colored_mask = np.array(img, copy=True, dtype=np.uint8)
+    for wheel_mask in wheel_masks:
+        colored_mask[wheel_mask.astype(bool)] = color
+    img = cv2.addWeighted(colored_mask, 0.5, img, 0.5, 0, dst=img)
+    return img
+
+
 def vis_wheel_direction(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data):
     cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
+    wheel_boxes = []
+    wheel_masks = []
     for box in boxes_ego:
         if box.wheel_direction_valid:
             # move box to sensor coord system.
@@ -27,34 +41,40 @@ def vis_wheel_direction(img, boxes_ego, wheel_annos, sensor_name, calibrated_sen
                 box.translate(np.array(calibrated_sensor_data['translation']))
                 continue
             box.render_cv2(img, view=cam_intrinsic, normalize=True, colors=((0, 0, 255), (0, 0, 255), (0, 0, 255)))
+            cv2.line(img, (int(box.wheel_ground_point[0]), int(box.wheel_ground_point[1])),
+                     (int(box.wheel_ground_point[2]), int(box.wheel_ground_point[3])), (255, 0, 0), 2)
+            token = box.token
+            if token in wheel_annos[sensor_name]:
+                for wheel in wheel_annos[sensor_name][token]:
+                    if wheel['token'] in box.wheel_token:
+                        wheel_boxes.append(wheel['box'])
+                        wheel_mask = np.zeros((img.shape[0], img.shape[1]))
+                        for x, y in wheel['mask']:
+                            wheel_mask[x, y] = 1
+                        wheel_masks.append(wheel_mask)
             # recover to ego coordinate
             box.rotate(Quaternion(calibrated_sensor_data['rotation']))
             box.translate(np.array(calibrated_sensor_data['translation']))
+    if len(wheel_boxes):
+        img = draw_wheels(img, wheel_masks, wheel_boxes, color=(255, 0, 0))
     return img
 
 
 def vis_wheels(img, boxes_ego_tot, wheel_annos_tot, sensor_name, sample_sensor_data):
-    wheel_scores = []
     wheel_boxes = []
     wheel_masks = []
-    wheel_labels = []
     for box in boxes_ego_tot:
         if box.name.split('.')[0] == 'vehicle':
             token = box.token
             if token in wheel_annos_tot[sensor_name]:
                 for wheel in wheel_annos_tot[sensor_name][token]:
-                    wheel_scores.append(wheel['box_score'])
                     wheel_boxes.append(wheel['box'])
-                    wheel_labels.append('wheel')
                     wheel_mask = np.zeros((sample_sensor_data['height'], sample_sensor_data['width']))
                     for x, y in wheel['mask']:
                         wheel_mask[x, y] = 1
                     wheel_masks.append(wheel_mask)
     if len(wheel_boxes):
-        wheel_scores = np.array(wheel_scores)
-        wheel_boxes = np.array(wheel_boxes)
-        wheel_masks = np.array(wheel_masks)
-        img = draw_image(img, wheel_masks, wheel_boxes, wheel_scores, wheel_labels)
+        img = draw_wheels(img, wheel_masks, wheel_boxes, color=(0, 255, 255))
     return img
 
 
@@ -99,23 +119,27 @@ def vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_t
     img.save(output_path)
 
 
-def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, thr=np.radians(10.0)):
+def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, wheel_token_0, wheel_token_1,
+                               thr=np.radians(10.0)):
     wheel_yaw_valid = 0
     if np.abs(wheel_yaw - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         # wheel_direction_ego = wheel_direction_ego
         # wheel_yaw = wheel_yaw
         # P_i_0, P_i_1 = P_i_0, P_i_1
+        # wheel_token_0, wheel_token_1 = wheel_token_0, wheel_token_1
     elif np.abs(wheel_yaw + np.pi - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw + np.pi
         P_i_0, P_i_1 = P_i_1, P_i_0
+        wheel_token_0, wheel_token_1 = wheel_token_1, wheel_token_0
     elif np.abs(wheel_yaw - np.pi - box_ego.orientation.angle) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw - np.pi
         P_i_0, P_i_1 = P_i_1, P_i_0
+        wheel_token_0, wheel_token_1 = wheel_token_1, wheel_token_0
     else:
         wheel_yaw_valid = 0
     yaw_diff = np.abs(wheel_yaw - box_ego.orientation.angle)
@@ -127,11 +151,13 @@ def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P
                 box_ego.wheel_direction = wheel_direction_ego
                 box_ego.wheel_yaw = wheel_yaw
                 box_ego.wheel_ground_point = [P_i_0[0], P_i_0[1], P_i_1[0], P_i_1[1]]
+                box_ego.wheel_token = [wheel_token_0, wheel_token_1]
         else:
             box_ego.wheel_direction_valid = True
             box_ego.wheel_direction = wheel_direction_ego
             box_ego.wheel_yaw = wheel_yaw
             box_ego.wheel_ground_point = [P_i_0[0], P_i_0[1], P_i_1[0], P_i_1[1]]
+            box_ego.wheel_token = [wheel_token_0, wheel_token_1]
 
 
 def get_wheel_ground_point(wheel_anno):
@@ -152,16 +178,19 @@ def update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_senso
         wheel_anno_lst = wheel_annos[sensor_name][box_ego.token]
         for i in range(len(wheel_anno_lst)):
             wheel_anno_0 = wheel_anno_lst[i]
+            wheel_token_0 = wheel_anno_0['token']
             u_grd_0, v_grd_0 = get_wheel_ground_point(wheel_anno_0)
             P_i_0 = np.array([u_grd_0, v_grd_0, 1.0])
             for j in range(i + 1, len(wheel_anno_lst)):
                 wheel_anno_1 = wheel_anno_lst[j]
+                wheel_token_1 = wheel_anno_1['token']
                 u_grd_1, v_grd_1 = get_wheel_ground_point(wheel_anno_1)
                 P_i_1 = np.array([u_grd_1, v_grd_1, 1.0])
                 wheel_direction_ego = U @ ((u.T @ P_i_0) * P_i_1 - (u.T @ P_i_1) * P_i_0)
                 wheel_yaw = np.arctan2(-wheel_direction_ego[1], wheel_direction_ego[0])
                 wheel_yaw_deg = np.degrees(wheel_yaw)
-                update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1)
+                update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, wheel_token_0,
+                                           wheel_token_1)
 
 
 def filtering_not_valid_wheels(wheel_annos_lst):
