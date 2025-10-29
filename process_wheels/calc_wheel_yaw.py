@@ -8,10 +8,26 @@ from nuscenes.utils.geometry_utils import box_in_image, BoxVisibility, view_poin
 from lang_sam.utils import draw_image, load_image
 from PIL import Image
 import cv2
+from scipy.spatial.transform import Rotation as R
 
 VERSION = 'v1.0-mini'
 DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes', VERSION)
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+
+
+def get_iou(box_0, box_1):
+    u_min_0, v_min_0, u_max_0, v_max_0 = box_0
+    u_min_1, v_min_1, u_max_1, v_max_1 = box_1
+    u_min = max(u_min_0, u_min_1)
+    u_max = min(u_max_0, u_max_1)
+    v_min = max(v_min_0, v_min_1)
+    v_max = min(v_max_0, v_max_1)
+    s_0 = (u_max_0 - u_min_0) * (v_max_0 - v_min_0)
+    s_1 = (u_max_1 - u_min_1) * (v_max_1 - v_min_1)
+    if u_max < u_min or v_max < v_min:
+        return 0.0, s_0, s_1, 0.0
+    s_i = (u_max - u_min) * (v_max - v_min)
+    return s_i / (s_0 + s_1 - s_i), s_0, s_1, s_i
 
 
 def vis_wheel_direction_tot(img, boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data):
@@ -45,6 +61,8 @@ def draw_wheels(img, wheel_masks, wheel_boxes, color=(0, 255, 255)):
     for wheel_box in wheel_boxes:
         u_min, v_min, u_max, v_max = wheel_box
         img = cv2.rectangle(img, (int(u_min), int(v_min)), (int(u_max), int(v_max)), color, 2)
+        img = cv2.putText(img, 'w {:.2f} h {:.2f}'.format(u_max - u_min, v_max - v_min), (int(u_max), int(v_max)),
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     colored_mask = np.array(img, copy=True, dtype=np.uint8)
     for wheel_mask in wheel_masks:
         colored_mask[wheel_mask.astype(bool)] = color
@@ -126,7 +144,8 @@ def vis_boxes(img, boxes_ego_tot, calibrated_sensor_data):
         # recover to ego coordinate
         box.rotate(Quaternion(calibrated_sensor_data['rotation']))
         box.translate(np.array(calibrated_sensor_data['translation']))
-        img = cv2.putText(img, '%.2f' % box.orientation.angle, (int(center_top[0]), int(center_top[1])),
+        yaw, _, _ = R.from_matrix(box.rotation_matrix).as_euler('zyx', degrees=False)
+        img = cv2.putText(img, '%.2f' % yaw, (int(center_top[0]), int(center_top[1])),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
     return img
 
@@ -152,34 +171,47 @@ def vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_t
 
 
 def update_box_wheel_direction(wheel_direction_ego, wheel_yaw, box_ego, P_i_0, P_i_1, wheel_token_0, wheel_token_1,
-                               thr=np.radians(15.0)):
+                               thr=np.radians(45.0)):
     wheel_yaw_valid = 0
-    if np.abs(wheel_yaw - box_ego.orientation.angle) < thr:
+    box_ego_yaw, _, _ = R.from_matrix(box_ego.rotation_matrix).as_euler('zyx', degrees=False)
+    if np.abs(wheel_yaw - box_ego_yaw) < thr:
         wheel_yaw_valid = 1
         # wheel_direction_ego = wheel_direction_ego
         # wheel_yaw = wheel_yaw
         # P_i_0, P_i_1 = P_i_0, P_i_1
         # wheel_token_0, wheel_token_1 = wheel_token_0, wheel_token_1
-    elif np.abs(wheel_yaw + np.pi - box_ego.orientation.angle) < thr:
+    elif np.abs(wheel_yaw + np.pi - box_ego_yaw) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw + np.pi
         P_i_0, P_i_1 = P_i_1, P_i_0
         wheel_token_0, wheel_token_1 = wheel_token_1, wheel_token_0
-    elif np.abs(wheel_yaw - np.pi - box_ego.orientation.angle) < thr:
+    elif np.abs(wheel_yaw - np.pi - box_ego_yaw) < thr:
         wheel_yaw_valid = 1
         wheel_direction_ego = -wheel_direction_ego
         wheel_yaw = wheel_yaw - np.pi
         P_i_0, P_i_1 = P_i_1, P_i_0
         wheel_token_0, wheel_token_1 = wheel_token_1, wheel_token_0
+    elif np.abs(wheel_yaw + 2. * np.pi - box_ego_yaw) < thr:
+        wheel_yaw_valid = 1
+        # wheel_direction_ego = wheel_direction_ego
+        wheel_yaw = wheel_yaw + 2. * np.pi
+        # P_i_0, P_i_1 = P_i_0, P_i_1
+        # wheel_token_0, wheel_token_1 = wheel_token_0, wheel_token_1
+    elif np.abs(wheel_yaw - 2. * np.pi - box_ego_yaw) < thr:
+        wheel_yaw_valid = 1
+        # wheel_direction_ego = wheel_direction_ego
+        wheel_yaw = wheel_yaw - 2. * np.pi
+        # P_i_0, P_i_1 = P_i_0, P_i_1
+        # wheel_token_0, wheel_token_1 = wheel_token_0, wheel_token_1
     else:
         wheel_yaw_valid = 0
-    yaw_diff = np.abs(wheel_yaw - box_ego.orientation.angle)
+    yaw_diff = np.abs(wheel_yaw - box_ego_yaw)
 
     if wheel_yaw_valid > 0:
         # already have a valid wheel direction
         if box_ego.wheel_direction_valid:
-            if yaw_diff < np.abs(box_ego.wheel_yaw - box_ego.orientation.angle):
+            if yaw_diff < np.abs(box_ego.wheel_yaw - box_ego_yaw):
                 box_ego.wheel_direction = wheel_direction_ego
                 box_ego.wheel_yaw = wheel_yaw
                 box_ego.wheel_ground_point = [P_i_0[0], P_i_0[1], P_i_1[0], P_i_1[1]]
@@ -233,10 +265,30 @@ def filtering_not_valid_wheels(wheel_annos):
         for box_token in wheel_annos[sensor_name]:
             if box_token not in wheel_annos_output[sensor_name]:
                 wheel_annos_output[sensor_name][box_token] = []
+            wheel_annos_lst = []
+            wheel_del_idx_st = set()
             for wheel_anno in wheel_annos[sensor_name][box_token]:
                 u_min, v_min, u_max, v_max = wheel_anno['box']
                 width, height = u_max - u_min, v_max - v_min
-                if height < width * 0.95:
+                if height < width * 0.7:
+                    continue
+                if width < 15 or height < 15:
+                    continue
+                if width < 20 and height < 20:
+                    continue
+                wheel_annos_lst.append(wheel_anno)
+            for idx_0, wheel_anno_0 in enumerate(wheel_annos_lst):
+                for idx_1, wheel_anno_1 in enumerate(wheel_annos_lst):
+                    if idx_0 == idx_1:
+                        continue
+                    iou, s_0, s_1, _ = get_iou(wheel_anno_0['box'], wheel_anno_1['box'])
+                    if iou > 0.1:
+                        if s_0 > s_1:
+                            wheel_del_idx_st.add(idx_1)
+                        else:
+                            wheel_del_idx_st.add(idx_0)
+            for idx, wheel_anno in enumerate(wheel_annos_lst):
+                if idx in wheel_del_idx_st:
                     continue
                 wheel_annos_output[sensor_name][box_token].append(wheel_anno)
     return wheel_annos_output
@@ -299,11 +351,15 @@ def main():
             nxt_sample_token = sample['next']
             for sensor_name in CAM_SENSORS:
                 sample_sensor_data = nusc.get('sample_data', sample['data'][sensor_name])
+                img_name = sample_sensor_data['filename'].split('/')[-1].split('.')[0]
+                if img_name == 'n008-2018-08-30-15-16-55-0400__CAM_FRONT__1535657113612404':
+                    pass
                 # calibration data of sensor to ego
                 calibrated_sensor_data = nusc.get('calibrated_sensor', sample_sensor_data['calibrated_sensor_token'])
                 boxes_ego_tot = get_boxes_ego(nusc, sample, sensor_name)
                 # filtering not valid wheels
                 wheel_annos = filtering_not_valid_wheels(wheel_annos_tot)
+                wheel_annos_tot = wheel_annos
                 boxes_ego = filtering_boxes(boxes_ego_tot, wheel_annos, sensor_name)
                 update_wheel_direction(boxes_ego, wheel_annos, sensor_name, calibrated_sensor_data)
                 vis(sample_sensor_data, sensor_name, boxes_ego_tot, boxes_ego, wheel_annos_tot, wheel_annos,
