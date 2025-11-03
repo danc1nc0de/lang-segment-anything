@@ -43,6 +43,8 @@ def numpy_to_list(result):
         result_output['boxes'] = result_output['boxes'].tolist()
     if isinstance(result_output['mask_scores'], np.ndarray):
         result_output['mask_scores'] = result_output['mask_scores'].tolist()
+    if isinstance(result_output['mask_scores'], float):
+        result_output['mask_scores'] = [result_output['mask_scores']]
     if isinstance(result_output['masks'], np.ndarray):
         masks_lst = result_output['masks'].tolist()
         result_output['masks'] = []
