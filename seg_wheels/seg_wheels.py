@@ -28,7 +28,6 @@ def save_wheel_img(image_pil, wheels_result, img_wheel_path):
 
 def update_infos(result, img_name):
     result['wheel_num'] = len(result['scores'])
-    result['img_name'] = img_name
     result.pop('text_labels', None)
     result.pop('labels', None)
     result['wheel_tokens'] = []
@@ -79,7 +78,7 @@ def main():
             wheels_result = model.predict([image_pil], [TXT_PROMPT])[0]
             wheels_result_lst = numpy_to_list(wheels_result)
             update_infos(wheels_result_lst, img_name)
-            wheels_result_dict[img_name] = wheels_result_lst
+            wheels_result_dict[img_name.split('.')[0]] = wheels_result_lst
 
             img_wheel_name = img_name.split('.')[0] + '_wheel.jpg'
             img_wheel_path = os.path.join(img_wheel_dir, img_wheel_name)
