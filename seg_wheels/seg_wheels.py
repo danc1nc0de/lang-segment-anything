@@ -1,5 +1,4 @@
 import os
-import argparse
 import numpy as np
 from lang_sam import LangSAM
 from tqdm import tqdm
