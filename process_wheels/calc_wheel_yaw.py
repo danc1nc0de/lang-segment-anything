@@ -21,26 +21,23 @@ COLOR_BLUE = (0, 0, 255)
 COLOR_SKY_BLUE = (135, 206, 235)
 
 
-def draw_wheel_direction(img, boxes_3d_ego, boxes_sensor, calibrated_sensor_data, color=COLOR_GREEN):
+def draw_wheel_direction(img, boxes_3d_ego, boxes_sensor, color=COLOR_GREEN):
     img_output = np.asarray(img).copy()
-    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
     for box_ego, box_sensor in zip(boxes_3d_ego, boxes_sensor):
         yaw_box_ego, _, _ = R.from_matrix(box_ego.rotation_matrix).as_euler('zyx', degrees=False)
         if box_sensor.wheel_direction_valid:
-            # draw box
-            box_corners = view_points(box_sensor.corners(), cam_intrinsic, normalize=True)[:2, :]
-            u_txt, v_txt = np.mean(box_corners.T[:, 0]), np.max(box_corners.T[:, 1])
-            cv2.putText(img_output, 'yaw_box {:.2f}'.format(yaw_box_ego),
-                        (int(u_txt), int(v_txt) + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            cv2.putText(img_output, 'yaw_wheel {:.2f}'.format(box_sensor.wheel_yaw),
-                        (int(u_txt), int(v_txt) + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             # draw line for ground point
             u_min = box_sensor.wheel_ground_point[0]
             v_min = box_sensor.wheel_ground_point[1]
             u_max = box_sensor.wheel_ground_point[2]
             v_max = box_sensor.wheel_ground_point[3]
+            u_txt, v_txt = (u_min + u_max) / 2, v_max
             cv2.line(img_output, (int(u_min), int(v_min)),
                      (int(u_max), int(v_max)), color, 5)
+            cv2.putText(img_output, 'yaw_box {:.2f}'.format(yaw_box_ego),
+                        (int(u_txt), int(v_txt) + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(img_output, 'yaw_wheel {:.2f}'.format(box_sensor.wheel_yaw),
+                        (int(u_txt), int(v_txt) + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return Image.fromarray(np.uint8(img_output)).convert("RGB")
 
 
@@ -505,8 +502,7 @@ def main():
                 img = draw_boxes_3d(img, boxes_3d_sensor_veh, calibrated_sensor_data, colors_map=colors_map)
                 img = draw_wheels(img, annos_wheel_tot[cam_sensor][img_name], boxes_3d_sensor_veh,
                                   colors_map=colors_map)
-                img = draw_wheel_direction(img, boxes_3d_ego_filtering, boxes_3d_sensor_filtering,
-                                           calibrated_sensor_data)
+                img = draw_wheel_direction(img, boxes_3d_ego_filtering, boxes_3d_sensor_filtering)
                 img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_wheel_path)
 
