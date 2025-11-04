@@ -6,14 +6,105 @@ from nuscenes.utils.geometry_utils import BoxVisibility, view_points
 from nuscenes.utils.data_classes import LidarPointCloud
 import numpy as np
 from pyquaternion import Quaternion
+from PIL import Image
+import cv2
 
 VERSION = 'v1.0-mini'
 DATA_ROOT = '/home/danc1nc0de/Datasets/nuScenes/'
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
+# R G B
+COLOR_RED = (255, 0, 0)
+COLOR_BLUE = (0, 0, 255)
+COLOR_GREEN = (0, 255, 0)
+COLOR_PINK = (255, 220, 233)
+
 
 def save_json_wheel(annos_wheel):
-    pass
+    for cam_sensor in CAM_SENSORS:
+        json_wheel_dir = os.path.join(DATA_ROOT, 'json_wheel_assoc_n_filtering', cam_sensor)
+        if not os.path.exists(json_wheel_dir):
+            os.makedirs(json_wheel_dir)
+        json_wheel_path = os.path.join(json_wheel_dir, 'sample_wheel_annotation.json')
+        with open(json_wheel_path, 'w') as f:
+            json.dump(annos_wheel[cam_sensor], f, indent=2)
+
+
+def load_image(image_path: str):
+    return Image.open(image_path).convert("RGB")
+
+
+def get_colors_map(cnt):
+    colors_map = []
+    for i in range(cnt):
+        colors_map.append(np.random.choice(range(256), size=3).tolist())
+    return colors_map
+
+
+def get_img_wheel_path(img_name, cam_sensor):
+    img_wheel_dir = os.path.join(DATA_ROOT, 'samples_wheel_assoc_n_filtering', cam_sensor)
+    if not os.path.exists(img_wheel_dir):
+        os.makedirs(img_wheel_dir)
+    img_wheel_name = img_name + '_wheel.jpg'
+    img_wheel_path = os.path.join(img_wheel_dir, img_wheel_name)
+    return img_wheel_path
+
+
+def load_orig_img(img_name, cam_sensor):
+    img_dir = os.path.join(DATA_ROOT, 'samples', cam_sensor)
+    img_path = os.path.join(img_dir, img_name + '.jpg')
+    img = load_image(img_path)
+    return img
+
+
+def save_img(img, img_path):
+    img.save(img_path)
+
+
+def draw_boxes_3d(img, boxes_3d, calibrated_sensor_data, colors_map):
+    img_output = np.asarray(img).copy()
+    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
+    for idx, box in enumerate(boxes_3d):
+        color = colors_map[idx]
+        box_corners = view_points(box.corners(), cam_intrinsic, normalize=True)[:2, :]
+        for i in range(4):
+            cv2.line(img_output,
+                     (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
+                     (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
+                     color, 2)
+            cv2.line(img_output,
+                     (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
+                     (int(box_corners.T[(i + 1) % 4][0]), int(box_corners.T[(i + 1) % 4][1])),
+                     color, 2)
+            cv2.line(img_output,
+                     (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
+                     (int(box_corners.T[(i + 1) % 4 + 4][0]), int(box_corners.T[(i + 1) % 4 + 4][1])),
+                     color, 2)
+    return Image.fromarray(np.uint8(img_output)).convert("RGB")
+
+
+def draw_wheels(img, anno_wheel, boxes_3d, colors_map):
+    img_output = np.asarray(img).copy()
+    boxes_3d_token_lst = []
+    for box_3d in boxes_3d:
+        boxes_3d_token_lst.append(box_3d.token)
+    mask_tot = []
+    for mask_loc in anno_wheel["masks"]:
+        mask = np.zeros((img.height, img.width))
+        for v, u in mask_loc:
+            mask[v][u] = 1
+        mask_tot.append(mask)
+    if anno_wheel['wheel_num'] > 0:
+        colored_mask = np.array(img_output, copy=True, dtype=np.uint8)
+        for idx, box_2d in enumerate(anno_wheel['boxes']):
+            assoc_box_token = anno_wheel['assoc_box_tokens'][idx]
+            idx_box = boxes_3d_token_lst.index(assoc_box_token)
+            color = colors_map[idx_box]
+            u_min, v_min, u_max, v_max = box_2d
+            img_output = cv2.rectangle(img_output, (int(u_min), int(v_min)), (int(u_max), int(v_max)), color, 2)
+            colored_mask[mask_tot[idx].astype(bool)] = color
+        img_output = cv2.addWeighted(colored_mask, 0.5, img_output, 0.5, 0, dst=img_output)
+    return Image.fromarray(np.uint8(img_output)).convert("RGB")
 
 
 def get_iou(box_0, box_1):
@@ -99,8 +190,7 @@ def get_wheels_3d(annos_wheel, pcs_3d, pcs_2d):
                 wheel_3d_lst.append(pcs_3d.points[:3, idx_p])
         if len(wheel_3d_lst) > 0:
             wheel_3d_lst.sort(key=lambda x: x[0] ** 2 + x[1] ** 2 + x[2] ** 2)
-            wheel_3d = np.mean(np.array(2 * wheel_3d_lst[len(wheel_3d_lst) // 5: 3 * len(wheel_3d_lst) // 5]), axis=0)
-            wheels_3d.append(wheel_3d)
+            wheels_3d.append(wheel_3d_lst[-1])
         else:
             wheels_3d.append(None)
     return wheels_3d
@@ -159,7 +249,7 @@ def do_association(annos_wheel, boxes_3d, cam_data, camera_intrinsic, pcs_3d, pc
         area_wheel = (u_max_wheel - u_min_wheel) * (v_max_wheel - v_min_wheel)
         for idx_box in range(len(boxes_2d)):
             u_min_box, v_min_box, u_max_box, v_max_box = boxes_2d[idx_box]
-            v_mid_box = (v_min_box + v_max_box) / 2
+            v_mid_box = v_min_box + (v_max_box - v_min_box) / 4
             u_min_inter = max(u_min_wheel, u_min_box)
             u_max_inter = min(u_max_wheel, u_max_box)
             v_min_inter = max(v_min_wheel, v_mid_box)
@@ -211,14 +301,19 @@ def main():
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
     annos_wheel = load_json_wheel()
     for scene in tqdm(nusc.scene):
+        sample_token_lst = []
         first_sample_token = scene['first_sample_token']
         nxt_sample_token = first_sample_token
         while nxt_sample_token != '':
+            sample_token_lst.append(nxt_sample_token)
             sample = nusc.get('sample', nxt_sample_token)
-            lidar_data = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
             nxt_sample_token = sample['next']
+        for sample_token in tqdm(sample_token_lst):
+            sample = nusc.get('sample', sample_token)
+            lidar_data = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
             for cam_sensor in CAM_SENSORS:
                 cam_data = nusc.get('sample_data', sample['data'][cam_sensor])
+                calibrated_sensor_data = nusc.get('calibrated_sensor', cam_data['calibrated_sensor_token'])
                 img_name = cam_data['filename'].split('/')[-1].split('.')[0]
                 # mapping lidar point cloud to image
                 pcs_3d, pcs_2d = mapping_pointcloud_to_image(lidar_data, cam_data, nusc)
@@ -233,6 +328,13 @@ def main():
                 annos_wheel[cam_sensor][img_name] = filtering_non_assoc_wheels_n_update_assoc_box(
                     annos_wheel[cam_sensor][img_name],
                     assoc_box_token_lst)
+
+                colors_map = get_colors_map(len(boxes_3d_veh))
+                img = load_orig_img(img_name, cam_sensor)
+                img = draw_boxes_3d(img, boxes_3d_veh, calibrated_sensor_data, colors_map=colors_map)
+                img = draw_wheels(img, annos_wheel[cam_sensor][img_name], boxes_3d_veh, colors_map=colors_map)
+                img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
+                save_img(img, img_wheel_path)
     save_json_wheel(annos_wheel)
 
 
