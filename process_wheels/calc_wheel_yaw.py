@@ -21,6 +21,14 @@ COLOR_BLUE = (0, 0, 255)
 COLOR_SKY_BLUE = (135, 206, 235)
 
 
+def filtering_not_wheel_direction_valid_boxes(boxes_3d):
+    boxes_3d_output = []
+    for box_3d in boxes_3d:
+        if box_3d.wheel_direction_valid:
+            boxes_3d_output.append(box_3d)
+    return boxes_3d_output
+
+
 def save_json(wheel_direction_dict):
     for cam_sensor in CAM_SENSORS:
         json_wheel_direction_dir = os.path.join(DATA_ROOT, 'json_wheel_direction', cam_sensor)
@@ -40,7 +48,8 @@ def update_wheel_direction_dict(wheel_direction_dict, boxes_3d, img_name, cam_se
         if box_3d.wheel_direction_valid:
             if box_3d.token not in wheel_direction_dict[cam_sensor][img_name]:
                 wheel_direction_dict[cam_sensor][img_name][box_3d.token] = {}
-            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_direction'] = box_3d.wheel_direction.tolist()
+            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_direction'] = \
+                box_3d.wheel_direction.tolist()
             wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_token'] = box_3d.wheel_token
 
 
@@ -519,6 +528,7 @@ def main():
                                                                                 annos_wheel[cam_sensor][img_name])
                 update_wheel_direction(boxes_3d_ego_filtering, annos_wheel[cam_sensor][img_name], cam_sensor,
                                        calibrated_sensor_data)
+                boxes_3d_ego_filtering = filtering_not_wheel_direction_valid_boxes(boxes_3d_ego_filtering)
                 boxes_3d_sensor_filtering = convert_boxes_3d_ego_to_sensor(boxes_3d_ego_filtering, sample_sensor_data,
                                                                            calibrated_sensor_data)
                 colors_map = get_colors_map(len(boxes_3d_ego_veh))
