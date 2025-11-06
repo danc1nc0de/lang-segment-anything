@@ -21,6 +21,29 @@ COLOR_BLUE = (0, 0, 255)
 COLOR_SKY_BLUE = (135, 206, 235)
 
 
+def save_json(wheel_direction_dict):
+    for cam_sensor in CAM_SENSORS:
+        json_wheel_direction_dir = os.path.join(DATA_ROOT, 'json_wheel_direction', cam_sensor)
+        if not os.path.exists(json_wheel_direction_dir):
+            os.makedirs(json_wheel_direction_dir)
+        json_wheel_direction_path = os.path.join(json_wheel_direction_dir, 'sample_wheel_direction.json')
+        with open(json_wheel_direction_path, 'w') as f:
+            json.dump(wheel_direction_dict[cam_sensor], f, indent=2)
+
+
+def update_wheel_direction_dict(wheel_direction_dict, boxes_3d, img_name, cam_sensor):
+    if cam_sensor not in wheel_direction_dict:
+        wheel_direction_dict[cam_sensor] = {}
+    if img_name not in wheel_direction_dict[cam_sensor]:
+        wheel_direction_dict[cam_sensor][img_name] = {}
+    for box_3d in boxes_3d:
+        if box_3d.wheel_direction_valid:
+            if box_3d.token not in wheel_direction_dict[cam_sensor][img_name]:
+                wheel_direction_dict[cam_sensor][img_name][box_3d.token] = {}
+            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_direction'] = box_3d.wheel_direction.tolist()
+            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_token'] = box_3d.wheel_token
+
+
 def draw_wheel_direction(img, boxes_3d_ego, boxes_sensor, color=COLOR_GREEN):
     img_output = np.asarray(img).copy()
     for box_ego, box_sensor in zip(boxes_3d_ego, boxes_sensor):
@@ -467,6 +490,7 @@ def main():
     annos_wheel_tot = load_json_wheel()
     annos_wheel = load_json_wheel()
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
+    wheel_direction_dict = {}
     for scene in tqdm(nusc.scene):
         sample_token_lst = []
         first_sample_token = scene['first_sample_token']
@@ -505,6 +529,8 @@ def main():
                 img = draw_wheel_direction(img, boxes_3d_ego_filtering, boxes_3d_sensor_filtering)
                 img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_wheel_path)
+                update_wheel_direction_dict(wheel_direction_dict, boxes_3d_ego_filtering, img_name, cam_sensor)
+    save_json(wheel_direction_dict)
 
 
 if __name__ == '__main__':
