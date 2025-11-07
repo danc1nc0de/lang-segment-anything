@@ -1,0 +1,93 @@
+import os
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+
+DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes')
+CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
+
+
+def compare_delta_img_corners(delta_box_img_corners_dict, delta_wheel_img_corners_dict):
+    u_box_img_corner_lst, v_box_img_corner_lst, delta_yaw_ego_box_lst = [], [], []
+    for img_name in delta_box_img_corners_dict:
+        for box_token in delta_box_img_corners_dict[img_name]:
+            for data in delta_box_img_corners_dict[img_name][box_token]:
+                delta_yaw_ego = data[0]
+                delta_u = np.mean(np.abs(np.array(data[1][0])))
+                delta_v = np.mean(np.abs(np.array(data[1][1])))
+                if delta_u > 10:
+                    continue
+                delta_yaw_ego_box_lst.append(delta_yaw_ego)
+                u_box_img_corner_lst.append(delta_u)
+                v_box_img_corner_lst.append(delta_v)
+        if len(delta_yaw_ego_box_lst) > 10000:
+            break
+
+    u_wheel_img_corner_lst, v_wheel_img_corner_lst, delta_yaw_ego_wheel_lst = [], [], []
+    for img_name in delta_wheel_img_corners_dict:
+        for box_token in delta_wheel_img_corners_dict[img_name]:
+            for data in delta_wheel_img_corners_dict[img_name][box_token]:
+                delta_yaw_ego = data[0]
+                delta_u = data[1][0]
+                delta_v = data[1][1]
+                if delta_u < 0 or delta_v < 0:
+                    continue
+                if delta_v > 3:
+                    continue
+                while delta_yaw_ego > 180:
+                    delta_yaw_ego -= 360
+                while delta_yaw_ego < -180:
+                    delta_yaw_ego += 360
+                u_wheel_img_corner_lst.append(delta_u)
+                v_wheel_img_corner_lst.append(delta_v)
+                delta_yaw_ego_wheel_lst.append(delta_yaw_ego)
+        if len(delta_yaw_ego_wheel_lst) > 10000:
+            break
+
+    fig = plt.figure()
+    ax_0 = fig.add_subplot(121, projection='3d')
+    ax_1 = fig.add_subplot(122, projection='3d')
+
+    # 绘制散点图
+    scatter_0 = ax_0.scatter(u_box_img_corner_lst, v_box_img_corner_lst, delta_yaw_ego_box_lst, c=delta_yaw_ego_box_lst,
+                             cmap='viridis')
+    scatter_1 = ax_1.scatter(u_wheel_img_corner_lst, v_wheel_img_corner_lst, delta_yaw_ego_wheel_lst,
+                             c=delta_yaw_ego_wheel_lst,
+                             cmap='viridis')
+
+    # 添加颜色条
+    plt.colorbar(scatter_0)
+    plt.colorbar(scatter_1)
+
+    # 设置坐标轴标签
+    ax_0.set_xlabel('delta_u')
+    ax_0.set_ylabel('delta_v')
+    ax_0.set_zlabel('delta_yaw')
+
+    ax_1.set_xlabel('delta_u')
+    ax_1.set_ylabel('delta_v')
+    ax_1.set_zlabel('delta_yaw')
+
+    # 显示图形
+    plt.show()
+
+
+def load_json(cam_sensor):
+    json_delta_img_corners_dir = os.path.join(DATA_ROOT, 'json_delta_img_corners', cam_sensor)
+    json_delta_box_img_corners_path = os.path.join(json_delta_img_corners_dir, 'sample_delta_box_img_corners.json')
+    json_delta_wheel_img_corners_path = os.path.join(json_delta_img_corners_dir, 'sample_delta_wheel_img_corners.json')
+    with open(json_delta_box_img_corners_path, 'r') as f:
+        delta_box_img_corners_dict = json.load(f)
+    with open(json_delta_wheel_img_corners_path, 'r') as f:
+        delta_wheel_img_corners_dict = json.load(f)
+    return delta_box_img_corners_dict, delta_wheel_img_corners_dict
+
+
+def main():
+    for cam_sensor in CAM_SENSORS:
+        delta_box_img_corners_dict, delta_wheel_img_corners_dict = load_json(cam_sensor)
+        compare_delta_img_corners(delta_box_img_corners_dict, delta_wheel_img_corners_dict)
+
+
+if __name__ == '__main__':
+    main()
