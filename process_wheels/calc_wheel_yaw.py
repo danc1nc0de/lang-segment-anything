@@ -20,6 +20,96 @@ COLOR_GREEN = (0, 255, 0)
 COLOR_BLUE = (0, 0, 255)
 COLOR_SKY_BLUE = (135, 206, 235)
 
+ANGLE_NOISE_DEG_LIST = np.arange(-30.0, 30.0 + 0.1, 0.1)
+PIXEL_NOISE_LIST = np.arange(-10, 10 + 1, 1)
+
+
+def get_wheel_direction_ego(wheel_ground_point, calibrated_sensor_data):
+    R_sensor_to_ego = Quaternion(calibrated_sensor_data['rotation']).rotation_matrix
+    K = np.array(calibrated_sensor_data['camera_intrinsic'])
+    U = R_sensor_to_ego @ np.linalg.inv(K)
+    u = U[2, :]
+    P_i_0 = np.array([wheel_ground_point[0], wheel_ground_point[1], 1.0])
+    P_i_1 = np.array([wheel_ground_point[2], wheel_ground_point[3], 1.0])
+    wheel_direction_ego = U @ ((u.T @ P_i_0) * P_i_1 - (u.T @ P_i_1) * P_i_0)
+    return wheel_direction_ego
+
+
+def stat_angle_noise_for_wheels(delta_img_corners_dict, boxes_3d_ego, calibrated_sensor_data, img_name,
+                                cam_sensor):
+    if cam_sensor not in delta_img_corners_dict:
+        delta_img_corners_dict[cam_sensor] = {}
+    if img_name not in delta_img_corners_dict[cam_sensor]:
+        delta_img_corners_dict[cam_sensor][img_name] = {}
+    for box_3d_ego in boxes_3d_ego:
+        if not box_3d_ego.wheel_direction_valid:
+            continue
+        if box_3d_ego.token not in delta_img_corners_dict[cam_sensor][img_name]:
+            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token] = []
+        for u_noise in PIXEL_NOISE_LIST:
+            for v_noise in PIXEL_NOISE_LIST:
+                wheel_ground_point_noise = [
+                    box_3d_ego.wheel_ground_point[0] + u_noise,
+                    box_3d_ego.wheel_ground_point[1] + v_noise,
+                    box_3d_ego.wheel_ground_point[2],
+                    box_3d_ego.wheel_ground_point[3]
+                ]
+                wheel_direction_ego_noise = get_wheel_direction_ego(wheel_ground_point_noise, calibrated_sensor_data)
+                wheel_yaw_noise = np.arctan2(wheel_direction_ego_noise[1], wheel_direction_ego_noise[0])
+                delta_wheel_yaw = wheel_yaw_noise - box_3d_ego.wheel_yaw
+                delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token].append(
+                    [np.rad2deg(delta_wheel_yaw), [int(u_noise), int(v_noise)]])
+
+
+def add_angle_noise(box_3d_ego, angle_noise_deg, angle_noise_type):
+    box_3d_ego_noise = box_3d_ego.copy()
+    angle_noise = np.deg2rad(angle_noise_deg)
+    yaw_ego, pitch_ego, roll_ego = R.from_matrix(box_3d_ego.rotation_matrix).as_euler('zyx', degrees=False)
+    quat_ego = R.from_euler('zyx', [yaw_ego, pitch_ego, roll_ego], degrees=False).as_quat(scalar_first=True)
+    if angle_noise_type == 'yaw':
+        quat_ego_noise = R.from_euler('zyx', [yaw_ego + angle_noise, pitch_ego, roll_ego], degrees=False).as_quat(
+            scalar_first=True)
+    elif angle_noise_type == 'pitch':
+        quat_ego_noise = R.from_euler('zyx', [yaw_ego, pitch_ego + angle_noise, roll_ego], degrees=False).as_quat(
+            scalar_first=True)
+    elif angle_noise_type == 'roll':
+        quat_ego_noise = R.from_euler('zyx', [yaw_ego, pitch_ego, roll_ego + angle_noise], degrees=False).as_quat(
+            scalar_first=True)
+    else:
+        assert False
+    [x, y, z] = box_3d_ego.center
+    box_3d_ego_noise.translate(-np.array([x, y, z]))
+    box_3d_ego_noise.rotate(Quaternion(quat_ego).inverse)
+    box_3d_ego_noise.rotate(Quaternion(quat_ego_noise))
+    box_3d_ego_noise.translate(np.array([x, y, z]))
+    return box_3d_ego_noise
+
+
+def get_img_corners(box_3d_ego, calibrated_sensor_data):
+    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
+    box_3d_sensor = box_3d_ego.copy()
+    box_3d_sensor.translate(-np.array(calibrated_sensor_data['translation']))
+    box_3d_sensor.rotate(Quaternion(calibrated_sensor_data['rotation']).inverse)
+    img_corners = view_points(box_3d_sensor.corners(), cam_intrinsic, normalize=True)[:2, :]
+    return img_corners
+
+
+def stat_angle_noise_for_boxes(delta_img_corners_dict, boxes_3d_ego, calibrated_sensor_data, img_name, cam_sensor):
+    if cam_sensor not in delta_img_corners_dict:
+        delta_img_corners_dict[cam_sensor] = {}
+    if img_name not in delta_img_corners_dict[cam_sensor]:
+        delta_img_corners_dict[cam_sensor][img_name] = {}
+    for box_3d_ego in boxes_3d_ego:
+        if box_3d_ego.token not in delta_img_corners_dict[cam_sensor][img_name]:
+            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token] = []
+        img_corners = get_img_corners(box_3d_ego, calibrated_sensor_data)
+        for angle_noise_deg in ANGLE_NOISE_DEG_LIST:
+            box_3d_ego_noise = add_angle_noise(box_3d_ego, angle_noise_deg, 'yaw')
+            img_corners_noise = get_img_corners(box_3d_ego_noise, calibrated_sensor_data)
+            delta_img_corners = img_corners_noise - img_corners
+            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token].append(
+                [angle_noise_deg, delta_img_corners.tolist()])
+
 
 def filtering_not_wheel_direction_valid_boxes(boxes_3d):
     boxes_3d_output = []
@@ -29,7 +119,7 @@ def filtering_not_wheel_direction_valid_boxes(boxes_3d):
     return boxes_3d_output
 
 
-def save_json(wheel_direction_dict):
+def save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict):
     for cam_sensor in CAM_SENSORS:
         json_wheel_direction_dir = os.path.join(DATA_ROOT, 'json_wheel_direction', cam_sensor)
         if not os.path.exists(json_wheel_direction_dir):
@@ -37,6 +127,16 @@ def save_json(wheel_direction_dict):
         json_wheel_direction_path = os.path.join(json_wheel_direction_dir, 'sample_wheel_direction.json')
         with open(json_wheel_direction_path, 'w') as f:
             json.dump(wheel_direction_dict[cam_sensor], f, indent=2)
+        json_delta_img_corners_dir = os.path.join(DATA_ROOT, 'json_delta_img_corners', cam_sensor)
+        if not os.path.exists(json_delta_img_corners_dir):
+            os.makedirs(json_delta_img_corners_dir)
+        json_delta_box_img_corners_path = os.path.join(json_delta_img_corners_dir, 'sample_delta_box_img_corners.json')
+        with open(json_delta_box_img_corners_path, 'w') as f:
+            json.dump(delta_box_img_corners_dict[cam_sensor], f, indent=2)
+        json_delta_wheel_img_corners_path = os.path.join(json_delta_img_corners_dir,
+                                                         'sample_delta_wheel_img_corners.json')
+        with open(json_delta_wheel_img_corners_path, 'w') as f:
+            json.dump(delta_wheel_img_corners_dict[cam_sensor], f, indent=2)
 
 
 def update_wheel_direction_dict(wheel_direction_dict, boxes_3d, img_name, cam_sensor):
@@ -500,6 +600,8 @@ def main():
     annos_wheel = load_json_wheel()
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
     wheel_direction_dict = {}
+    delta_box_img_corners_dict = {}
+    delta_wheel_img_corners_dict = {}
     for scene in tqdm(nusc.scene):
         sample_token_lst = []
         first_sample_token = scene['first_sample_token']
@@ -531,6 +633,12 @@ def main():
                 boxes_3d_ego_filtering = filtering_not_wheel_direction_valid_boxes(boxes_3d_ego_filtering)
                 boxes_3d_sensor_filtering = convert_boxes_3d_ego_to_sensor(boxes_3d_ego_filtering, sample_sensor_data,
                                                                            calibrated_sensor_data)
+                update_wheel_direction_dict(wheel_direction_dict, boxes_3d_ego_filtering, img_name, cam_sensor)
+
+                stat_angle_noise_for_boxes(delta_box_img_corners_dict, boxes_3d_ego_filtering, calibrated_sensor_data,
+                                           img_name, cam_sensor)
+                stat_angle_noise_for_wheels(delta_wheel_img_corners_dict, boxes_3d_ego_filtering,
+                                            calibrated_sensor_data, img_name, cam_sensor)
                 colors_map = get_colors_map(len(boxes_3d_ego_veh))
                 img = load_orig_img(img_name, cam_sensor)
                 img = draw_boxes_3d(img, boxes_3d_sensor_veh, calibrated_sensor_data, colors_map=colors_map)
@@ -539,8 +647,7 @@ def main():
                 img = draw_wheel_direction(img, boxes_3d_ego_filtering, boxes_3d_sensor_filtering)
                 img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_wheel_path)
-                update_wheel_direction_dict(wheel_direction_dict, boxes_3d_ego_filtering, img_name, cam_sensor)
-    save_json(wheel_direction_dict)
+    save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict)
 
 
 if __name__ == '__main__':
