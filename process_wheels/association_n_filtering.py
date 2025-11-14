@@ -20,14 +20,9 @@ COLOR_GREEN = (0, 255, 0)
 COLOR_PINK = (255, 220, 233)
 
 
-def save_json_wheel(annos_wheel):
-    for cam_sensor in CAM_SENSORS:
-        json_wheel_dir = os.path.join(DATA_ROOT, 'json_wheel_assoc_n_filtering', cam_sensor)
-        if not os.path.exists(json_wheel_dir):
-            os.makedirs(json_wheel_dir)
-        json_wheel_path = os.path.join(json_wheel_dir, 'sample_wheel_annotation.json')
-        with open(json_wheel_path, 'w') as f:
-            json.dump(annos_wheel[cam_sensor], f, indent=2)
+def save_json_wheel(annos_wheel, json_wheel_path):
+    with open(json_wheel_path, 'w') as f:
+        json.dump(annos_wheel, f, indent=2)
 
 
 def load_image(image_path: str):
@@ -288,30 +283,40 @@ def filtering_non_vehicles(boxes_3d):
     return boxes_3d_output
 
 
-def load_json_wheel():
+def load_json_wheel(cam_sensor):
     wheel_result = {}
-    for cam_sensor in CAM_SENSORS:
-        json_wheel_path = os.path.join(DATA_ROOT, 'json_wheel', cam_sensor, 'sample_wheel_annotation.json')
-        with open(json_wheel_path, 'r') as f:
-            wheel_result[cam_sensor] = json.load(f)
+    json_wheel_path = os.path.join(DATA_ROOT, 'json_wheel', cam_sensor, 'sample_wheel_annotation.json')
+    with open(json_wheel_path, 'r') as f:
+        wheel_result = json.load(f)
     return wheel_result
+
+
+def get_save_json_path(cam_sensor):
+    json_wheel_dir = os.path.join(DATA_ROOT, VERSION, 'json_wheel_assoc_n_filtering', cam_sensor)
+    if not os.path.exists(json_wheel_dir):
+        os.makedirs(json_wheel_dir)
+    json_wheel_path = os.path.join(json_wheel_dir, 'sample_wheel_annotation.json')
+    return json_wheel_path, os.path.exists(json_wheel_path)
 
 
 def main():
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
-    annos_wheel = load_json_wheel()
-    for scene in tqdm(nusc.scene):
-        sample_token_lst = []
-        first_sample_token = scene['first_sample_token']
-        nxt_sample_token = first_sample_token
-        while nxt_sample_token != '':
-            sample_token_lst.append(nxt_sample_token)
-            sample = nusc.get('sample', nxt_sample_token)
-            nxt_sample_token = sample['next']
-        for sample_token in tqdm(sample_token_lst):
-            sample = nusc.get('sample', sample_token)
-            lidar_data = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
-            for cam_sensor in CAM_SENSORS:
+    for cam_sensor in tqdm(CAM_SENSORS, desc="cam_sensor"):
+        json_wheel_path, flag_path_exists = get_save_json_path(cam_sensor)
+        if flag_path_exists:
+            continue
+        annos_wheel = load_json_wheel(cam_sensor)
+        for scene in tqdm(nusc.scene, desc="scene"):
+            sample_token_lst = []
+            first_sample_token = scene['first_sample_token']
+            nxt_sample_token = first_sample_token
+            while nxt_sample_token != '':
+                sample_token_lst.append(nxt_sample_token)
+                sample = nusc.get('sample', nxt_sample_token)
+                nxt_sample_token = sample['next']
+            for sample_token in tqdm(sample_token_lst, desc="sample_token"):
+                sample = nusc.get('sample', sample_token)
+                lidar_data = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
                 cam_data = nusc.get('sample_data', sample['data'][cam_sensor])
                 calibrated_sensor_data = nusc.get('calibrated_sensor', cam_data['calibrated_sensor_token'])
                 img_name = cam_data['filename'].split('/')[-1].split('.')[0]
@@ -322,20 +327,19 @@ def main():
                                                                          box_vis_level=BoxVisibility.ANY)
                 boxes_3d_veh = filtering_non_vehicles(boxes_3d_tot)
                 # filtering false wheels
-                annos_wheel[cam_sensor][img_name] = filtering_false_wheels(annos_wheel[cam_sensor][img_name])
-                assoc_box_token_lst = do_association(annos_wheel[cam_sensor][img_name], boxes_3d_veh, cam_data,
-                                                     camera_intrinsic, pcs_3d, pcs_2d)
-                annos_wheel[cam_sensor][img_name] = filtering_non_assoc_wheels_n_update_assoc_box(
-                    annos_wheel[cam_sensor][img_name],
-                    assoc_box_token_lst)
+                annos_wheel[img_name] = filtering_false_wheels(annos_wheel[img_name])
+                assoc_box_token_lst = do_association(annos_wheel[img_name], boxes_3d_veh, cam_data, camera_intrinsic,
+                                                     pcs_3d, pcs_2d)
+                annos_wheel[img_name] = filtering_non_assoc_wheels_n_update_assoc_box(annos_wheel[img_name],
+                                                                                      assoc_box_token_lst)
 
                 colors_map = get_colors_map(len(boxes_3d_veh))
                 img = load_orig_img(img_name, cam_sensor)
                 img = draw_boxes_3d(img, boxes_3d_veh, calibrated_sensor_data, colors_map=colors_map)
-                img = draw_wheels(img, annos_wheel[cam_sensor][img_name], boxes_3d_veh, colors_map=colors_map)
+                img = draw_wheels(img, annos_wheel[img_name], boxes_3d_veh, colors_map=colors_map)
                 img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_wheel_path)
-    save_json_wheel(annos_wheel)
+        save_json_wheel(annos_wheel, json_wheel_path)
 
 
 if __name__ == '__main__':

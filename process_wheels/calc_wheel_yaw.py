@@ -37,15 +37,13 @@ def get_wheel_direction_ego(wheel_ground_point, calibrated_sensor_data):
 
 def stat_angle_noise_for_wheels(delta_img_corners_dict, boxes_3d_ego, calibrated_sensor_data, img_name,
                                 cam_sensor):
-    if cam_sensor not in delta_img_corners_dict:
-        delta_img_corners_dict[cam_sensor] = {}
-    if img_name not in delta_img_corners_dict[cam_sensor]:
-        delta_img_corners_dict[cam_sensor][img_name] = {}
+    if img_name not in delta_img_corners_dict:
+        delta_img_corners_dict[img_name] = {}
     for box_3d_ego in boxes_3d_ego:
         if not box_3d_ego.wheel_direction_valid:
             continue
-        if box_3d_ego.token not in delta_img_corners_dict[cam_sensor][img_name]:
-            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token] = []
+        if box_3d_ego.token not in delta_img_corners_dict[img_name]:
+            delta_img_corners_dict[img_name][box_3d_ego.token] = []
         for u_noise in PIXEL_NOISE_LIST:
             for v_noise in PIXEL_NOISE_LIST:
                 wheel_ground_point_noise = [
@@ -57,7 +55,7 @@ def stat_angle_noise_for_wheels(delta_img_corners_dict, boxes_3d_ego, calibrated
                 wheel_direction_ego_noise = get_wheel_direction_ego(wheel_ground_point_noise, calibrated_sensor_data)
                 wheel_yaw_noise = np.arctan2(wheel_direction_ego_noise[1], wheel_direction_ego_noise[0])
                 delta_wheel_yaw = wheel_yaw_noise - box_3d_ego.wheel_yaw
-                delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token].append(
+                delta_img_corners_dict[img_name][box_3d_ego.token].append(
                     [np.rad2deg(delta_wheel_yaw), [int(u_noise), int(v_noise)]])
 
 
@@ -95,19 +93,17 @@ def get_img_corners(box_3d_ego, calibrated_sensor_data):
 
 
 def stat_angle_noise_for_boxes(delta_img_corners_dict, boxes_3d_ego, calibrated_sensor_data, img_name, cam_sensor):
-    if cam_sensor not in delta_img_corners_dict:
-        delta_img_corners_dict[cam_sensor] = {}
-    if img_name not in delta_img_corners_dict[cam_sensor]:
-        delta_img_corners_dict[cam_sensor][img_name] = {}
+    if img_name not in delta_img_corners_dict:
+        delta_img_corners_dict[img_name] = {}
     for box_3d_ego in boxes_3d_ego:
-        if box_3d_ego.token not in delta_img_corners_dict[cam_sensor][img_name]:
-            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token] = []
+        if box_3d_ego.token not in delta_img_corners_dict[img_name]:
+            delta_img_corners_dict[img_name][box_3d_ego.token] = []
         img_corners = get_img_corners(box_3d_ego, calibrated_sensor_data)
         for angle_noise_deg in ANGLE_NOISE_DEG_LIST:
             box_3d_ego_noise = add_angle_noise(box_3d_ego, angle_noise_deg, 'yaw')
             img_corners_noise = get_img_corners(box_3d_ego_noise, calibrated_sensor_data)
             delta_img_corners = img_corners_noise - img_corners
-            delta_img_corners_dict[cam_sensor][img_name][box_3d_ego.token].append(
+            delta_img_corners_dict[img_name][box_3d_ego.token].append(
                 [angle_noise_deg, delta_img_corners.tolist()])
 
 
@@ -119,38 +115,31 @@ def filtering_not_wheel_direction_valid_boxes(boxes_3d):
     return boxes_3d_output
 
 
-def save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict):
-    for cam_sensor in CAM_SENSORS:
-        json_wheel_direction_dir = os.path.join(DATA_ROOT, 'json_wheel_direction', cam_sensor)
-        if not os.path.exists(json_wheel_direction_dir):
-            os.makedirs(json_wheel_direction_dir)
-        json_wheel_direction_path = os.path.join(json_wheel_direction_dir, 'sample_wheel_direction.json')
-        with open(json_wheel_direction_path, 'w') as f:
-            json.dump(wheel_direction_dict[cam_sensor], f, indent=2)
-        json_delta_img_corners_dir = os.path.join(DATA_ROOT, 'json_delta_img_corners', cam_sensor)
-        if not os.path.exists(json_delta_img_corners_dir):
-            os.makedirs(json_delta_img_corners_dir)
-        json_delta_box_img_corners_path = os.path.join(json_delta_img_corners_dir, 'sample_delta_box_img_corners.json')
-        with open(json_delta_box_img_corners_path, 'w') as f:
-            json.dump(delta_box_img_corners_dict[cam_sensor], f, indent=2)
-        json_delta_wheel_img_corners_path = os.path.join(json_delta_img_corners_dir,
-                                                         'sample_delta_wheel_img_corners.json')
-        with open(json_delta_wheel_img_corners_path, 'w') as f:
-            json.dump(delta_wheel_img_corners_dict[cam_sensor], f, indent=2)
+def save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict, cam_sensor,
+              json_wheel_paths):
+    json_wheel_direction_path = json_wheel_paths['json_wheel_direction_path']
+    with open(json_wheel_direction_path, 'w') as f:
+        json.dump(wheel_direction_dict, f, indent=2)
+
+    json_delta_box_img_corners_path = json_wheel_paths['json_delta_box_img_corners_path']
+    with open(json_delta_box_img_corners_path, 'w') as f:
+        json.dump(delta_box_img_corners_dict, f, indent=2)
+
+    json_delta_wheel_img_corners_path = json_wheel_paths['json_delta_wheel_img_corners_path']
+    with open(json_delta_wheel_img_corners_path, 'w') as f:
+        json.dump(delta_wheel_img_corners_dict, f, indent=2)
 
 
 def update_wheel_direction_dict(wheel_direction_dict, boxes_3d, img_name, cam_sensor):
-    if cam_sensor not in wheel_direction_dict:
-        wheel_direction_dict[cam_sensor] = {}
-    if img_name not in wheel_direction_dict[cam_sensor]:
-        wheel_direction_dict[cam_sensor][img_name] = {}
+    if img_name not in wheel_direction_dict:
+        wheel_direction_dict[img_name] = {}
     for box_3d in boxes_3d:
         if box_3d.wheel_direction_valid:
-            if box_3d.token not in wheel_direction_dict[cam_sensor][img_name]:
-                wheel_direction_dict[cam_sensor][img_name][box_3d.token] = {}
-            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_direction'] = \
+            if box_3d.token not in wheel_direction_dict[img_name]:
+                wheel_direction_dict[img_name][box_3d.token] = {}
+            wheel_direction_dict[img_name][box_3d.token]['wheel_direction'] = \
                 box_3d.wheel_direction.tolist()
-            wheel_direction_dict[cam_sensor][img_name][box_3d.token]['wheel_token'] = box_3d.wheel_token
+            wheel_direction_dict[img_name][box_3d.token]['wheel_token'] = box_3d.wheel_token
 
 
 def draw_wheel_direction(img, boxes_3d_ego, boxes_sensor, color=COLOR_GREEN):
@@ -585,34 +574,60 @@ def get_boxes_3d_ego(nusc, sample, sensor_name):
     return boxes_3d_ego
 
 
-def load_json_wheel():
+def load_json_wheel(cam_sensor):
     wheel_result = {}
-    for cam_sensor in CAM_SENSORS:
-        json_wheel_path = os.path.join(DATA_ROOT, 'json_wheel_assoc_n_filtering', cam_sensor,
-                                       'sample_wheel_annotation.json')
-        with open(json_wheel_path, 'r') as f:
-            wheel_result[cam_sensor] = json.load(f)
+    json_wheel_path = os.path.join(DATA_ROOT, VERSION, 'json_wheel_assoc_n_filtering', cam_sensor,
+                                   'sample_wheel_annotation.json')
+    with open(json_wheel_path, 'r') as f:
+        wheel_result = json.load(f)
     return wheel_result
 
 
+def get_save_json_path(cam_sensor):
+    json_paths = {}
+    json_wheel_direction_dir = os.path.join(DATA_ROOT, VERSION, 'json_wheel_direction', cam_sensor)
+    if not os.path.exists(json_wheel_direction_dir):
+        os.makedirs(json_wheel_direction_dir)
+    json_wheel_direction_path = os.path.join(json_wheel_direction_dir, 'sample_wheel_direction.json')
+    json_paths['json_wheel_direction_path'] = json_wheel_direction_path
+
+    json_delta_img_corners_dir = os.path.join(DATA_ROOT, VERSION, 'json_delta_img_corners', cam_sensor)
+    if not os.path.exists(json_delta_img_corners_dir):
+        os.makedirs(json_delta_img_corners_dir)
+    json_delta_box_img_corners_path = os.path.join(json_delta_img_corners_dir, 'sample_delta_box_img_corners.json')
+    json_paths['json_delta_box_img_corners_path'] = json_delta_box_img_corners_path
+
+    json_delta_wheel_img_corners_path = os.path.join(json_delta_img_corners_dir,
+                                                     'sample_delta_wheel_img_corners.json')
+    json_paths['json_delta_wheel_img_corners_path'] = json_delta_wheel_img_corners_path
+    if os.path.exists(json_wheel_direction_path) and \
+            os.path.exists(json_delta_box_img_corners_path) and \
+            os.path.exists(json_delta_wheel_img_corners_path):
+        return json_paths, True
+    return json_paths, False
+
+
 def main():
-    annos_wheel_tot = load_json_wheel()
-    annos_wheel = load_json_wheel()
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
-    wheel_direction_dict = {}
-    delta_box_img_corners_dict = {}
-    delta_wheel_img_corners_dict = {}
-    for scene in tqdm(nusc.scene):
-        sample_token_lst = []
-        first_sample_token = scene['first_sample_token']
-        nxt_sample_token = first_sample_token
-        while nxt_sample_token != '':
-            sample_token_lst.append(nxt_sample_token)
-            sample = nusc.get('sample', nxt_sample_token)
-            nxt_sample_token = sample['next']
-        for sample_token in tqdm(sample_token_lst):
-            sample = nusc.get('sample', sample_token)
-            for cam_sensor in CAM_SENSORS:
+    for cam_sensor in tqdm(CAM_SENSORS, desc="cam_sensor"):
+        json_wheel_paths, flag_path_exists = get_save_json_path(cam_sensor)
+        if flag_path_exists:
+            continue
+        annos_wheel_tot = load_json_wheel(cam_sensor)
+        annos_wheel = load_json_wheel(cam_sensor)
+        wheel_direction_dict = {}
+        delta_box_img_corners_dict = {}
+        delta_wheel_img_corners_dict = {}
+        for scene in tqdm(nusc.scene, desc="scene"):
+            sample_token_lst = []
+            first_sample_token = scene['first_sample_token']
+            nxt_sample_token = first_sample_token
+            while nxt_sample_token != '':
+                sample_token_lst.append(nxt_sample_token)
+                sample = nusc.get('sample', nxt_sample_token)
+                nxt_sample_token = sample['next']
+            for sample_token in tqdm(sample_token_lst, desc="sample_token"):
+                sample = nusc.get('sample', sample_token)
                 sample_sensor_data = nusc.get('sample_data', sample['data'][cam_sensor])
                 img_name = sample_sensor_data['filename'].split('/')[-1].split('.')[0]
                 # calibration data of sensor to ego
@@ -623,12 +638,12 @@ def main():
                 boxes_3d_sensor_veh = convert_boxes_3d_ego_to_sensor(boxes_3d_ego_veh, sample_sensor_data,
                                                                      calibrated_sensor_data)
                 # filtering not valid wheels for calc yaw
-                annos_wheel[cam_sensor][img_name] = filtering_not_valid_wheels_for_calc_yaw(
-                    annos_wheel_tot[cam_sensor][img_name], sample_sensor_data)
+                annos_wheel[img_name] = filtering_not_valid_wheels_for_calc_yaw(
+                    annos_wheel_tot[img_name], sample_sensor_data)
                 # filtering not valid boxes for calc yaw
                 boxes_3d_ego_filtering = filtering_not_valid_boxes_for_calc_yaw(boxes_3d_ego_veh,
-                                                                                annos_wheel[cam_sensor][img_name])
-                update_wheel_direction(boxes_3d_ego_filtering, annos_wheel[cam_sensor][img_name], cam_sensor,
+                                                                                annos_wheel[img_name])
+                update_wheel_direction(boxes_3d_ego_filtering, annos_wheel[img_name], cam_sensor,
                                        calibrated_sensor_data)
                 boxes_3d_ego_filtering = filtering_not_wheel_direction_valid_boxes(boxes_3d_ego_filtering)
                 boxes_3d_sensor_filtering = convert_boxes_3d_ego_to_sensor(boxes_3d_ego_filtering, sample_sensor_data,
@@ -642,12 +657,13 @@ def main():
                 colors_map = get_colors_map(len(boxes_3d_ego_veh))
                 img = load_orig_img(img_name, cam_sensor)
                 img = draw_boxes_3d(img, boxes_3d_sensor_veh, calibrated_sensor_data, colors_map=colors_map)
-                img = draw_wheels(img, annos_wheel_tot[cam_sensor][img_name], boxes_3d_sensor_veh,
+                img = draw_wheels(img, annos_wheel_tot[img_name], boxes_3d_sensor_veh,
                                   colors_map=colors_map)
                 img = draw_wheel_direction(img, boxes_3d_ego_filtering, boxes_3d_sensor_filtering)
                 img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_wheel_path)
-    save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict)
+        save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict, cam_sensor,
+                  json_wheel_paths)
 
 
 if __name__ == '__main__':
