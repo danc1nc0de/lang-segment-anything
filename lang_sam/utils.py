@@ -11,7 +11,7 @@ def load_image(image_path: str):
 
 
 def draw_image(image_rgb, masks, xyxy, probs, labels):
-    box_annotator = sv.BoxCornerAnnotator()
+    box_annotator = sv.BoxCornerAnnotator(thickness=2)
     label_annotator = sv.LabelAnnotator()
     mask_annotator = sv.MaskAnnotator()
     # Create class_id for each unique label
@@ -27,7 +27,7 @@ def draw_image(image_rgb, masks, xyxy, probs, labels):
         class_id=np.array(class_id),
     )
     annotated_image = box_annotator.annotate(scene=image_rgb.copy(), detections=detections)
-    annotated_image = label_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
+    # annotated_image = label_annotator.annotate(scene=annotated_image, detections=detections, labels=labels)
     annotated_image = mask_annotator.annotate(scene=annotated_image, detections=detections)
     return annotated_image
 
