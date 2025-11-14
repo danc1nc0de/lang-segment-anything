@@ -7,6 +7,68 @@ DATA_ROOT = os.path.join('/home/danc1nc0de/Datasets/nuScenes')
 CAM_SENSORS = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT']
 
 
+def compare_delta_img_corners_2d(delta_box_img_corners_dict, delta_wheel_img_corners_dict):
+    u_box_img_corner_lst, delta_yaw_ego_box_u_lst = [], []
+    v_box_img_corner_lst, delta_yaw_ego_box_v_lst = [], []
+    for img_name in delta_box_img_corners_dict:
+        for box_token in delta_box_img_corners_dict[img_name]:
+            for data in delta_box_img_corners_dict[img_name][box_token]:
+                delta_yaw_ego = data[0]
+                delta_u = np.mean(np.abs(np.array(data[1][0])))
+                delta_v = np.mean(np.abs(np.array(data[1][1])))
+                if delta_v < 1 and delta_u < 10:
+                    u_box_img_corner_lst.append(delta_u)
+                    delta_yaw_ego_box_u_lst.append(delta_yaw_ego)
+                if delta_u < 1:
+                    v_box_img_corner_lst.append(delta_v)
+                    delta_yaw_ego_box_v_lst.append(delta_yaw_ego)
+
+    u_wheel_img_corner_lst, delta_yaw_ego_wheel_u_lst = [], []
+    v_wheel_img_corner_lst, delta_yaw_ego_wheel_v_lst = [], []
+    for img_name in delta_wheel_img_corners_dict:
+        for box_token in delta_wheel_img_corners_dict[img_name]:
+            for data in delta_wheel_img_corners_dict[img_name][box_token]:
+                delta_yaw_ego = data[0]
+                delta_u = data[1][0]
+                delta_v = data[1][1]
+                if delta_u < 0 or delta_v < 0:
+                    continue
+                while delta_yaw_ego > 180:
+                    delta_yaw_ego -= 360
+                while delta_yaw_ego < -180:
+                    delta_yaw_ego += 360
+                if delta_v < 1:
+                    u_wheel_img_corner_lst.append(delta_u)
+                    delta_yaw_ego_wheel_u_lst.append(delta_yaw_ego)
+                if delta_u < 1:
+                    v_wheel_img_corner_lst.append(delta_v)
+                    delta_yaw_ego_wheel_v_lst.append(delta_yaw_ego)
+
+    fig = plt.figure()
+    ax_0 = fig.add_subplot(121)
+    ax_1 = fig.add_subplot(122)
+
+    # 绘制散点图
+    # scatter_0 = ax_0.scatter(u_box_img_corner_lst, delta_yaw_ego_box_u_lst)
+    scatter_0 = ax_0.scatter(v_box_img_corner_lst, delta_yaw_ego_box_v_lst)
+    # scatter_1 = ax_1.scatter(u_wheel_img_corner_lst, delta_yaw_ego_wheel_u_lst)
+    scatter_1 = ax_1.scatter(v_wheel_img_corner_lst, delta_yaw_ego_wheel_v_lst)
+
+    # 添加颜色条
+    plt.colorbar(scatter_0)
+    plt.colorbar(scatter_1)
+
+    # 设置坐标轴标签
+    ax_0.set_xlabel('delta_u')
+    ax_0.set_ylabel('delta_yaw')
+
+    ax_1.set_xlabel('delta_u')
+    ax_1.set_ylabel('delta_yaw')
+
+    # 显示图形
+    plt.show()
+
+
 def compare_delta_img_corners(delta_box_img_corners_dict, delta_wheel_img_corners_dict):
     u_box_img_corner_lst, v_box_img_corner_lst, delta_yaw_ego_box_lst = [], [], []
     for img_name in delta_box_img_corners_dict:
@@ -86,7 +148,8 @@ def load_json(cam_sensor):
 def main():
     for cam_sensor in CAM_SENSORS:
         delta_box_img_corners_dict, delta_wheel_img_corners_dict = load_json(cam_sensor)
-        compare_delta_img_corners(delta_box_img_corners_dict, delta_wheel_img_corners_dict)
+        # compare_delta_img_corners(delta_box_img_corners_dict, delta_wheel_img_corners_dict)
+        compare_delta_img_corners_2d(delta_box_img_corners_dict, delta_wheel_img_corners_dict)
 
 
 if __name__ == '__main__':
