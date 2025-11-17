@@ -153,11 +153,10 @@ def draw_wheel_direction(img, boxes_3d_ego, boxes_sensor, color=COLOR_GREEN):
             u_max = box_sensor.wheel_ground_point[2]
             v_max = box_sensor.wheel_ground_point[3]
             u_txt, v_txt = (u_min + u_max) / 2, v_max
-            cv2.line(img_output, (int(u_min), int(v_min)),
-                     (int(u_max), int(v_max)), color, 5)
-            cv2.putText(img_output, 'yaw_box {:.2f}'.format(yaw_box_ego),
+            cv2.arrowedLine(img_output, (int(u_max), int(v_max)), (int(u_min), int(v_min)), color, 4, tipLength=0.2)
+            cv2.putText(img_output, 'yaw_box_anno: {:.2f} deg'.format(np.rad2deg(yaw_box_ego)),
                         (int(u_txt), int(v_txt) + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            cv2.putText(img_output, 'yaw_wheel {:.2f}'.format(box_sensor.wheel_yaw),
+            cv2.putText(img_output, 'yaw_wheel_dir: {:.2f} deg'.format(np.rad2deg(box_sensor.wheel_yaw)),
                         (int(u_txt), int(v_txt) + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return Image.fromarray(np.uint8(img_output)).convert("RGB")
 
