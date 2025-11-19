@@ -564,6 +564,10 @@ def filtering_not_valid_boxes_for_calc_yaw(boxes_sensor, wheel_annos):
         # filtering less than 2 wheels
         if wheel_annos['assoc_box_tokens'].count(box_sensor.token) < 2:
             continue
+        # filtering too large pitch
+        _, pitch_sensor, _ = R.from_matrix(box_sensor.rotation_matrix).as_euler('zyx', degrees=True)
+        if abs(pitch_sensor) > 2:
+            continue
         boxes_sensor_output.append(box_sensor)
     return boxes_sensor_output
 
