@@ -148,6 +148,7 @@ def update_wheel_direction_dict(wheel_direction_dict, boxes_3d_sensor, img_name,
 
 def draw_wheel_direction(img, boxes_3d_sensor, color=COLOR_GREEN):
     img_output = np.asarray(img).copy()
+    img_output_notxt = np.asarray(img).copy()
     for box_sensor in boxes_3d_sensor:
         yaw_box_sensor, _, _ = R.from_matrix(box_sensor.rotation_matrix).as_euler('zyx', degrees=False)
         if box_sensor.wheel_direction_valid:
@@ -158,15 +159,19 @@ def draw_wheel_direction(img, boxes_3d_sensor, color=COLOR_GREEN):
             v_max = box_sensor.wheel_ground_point[3]
             u_txt, v_txt = (u_min + u_max) / 2, v_max
             cv2.arrowedLine(img_output, (int(u_max), int(v_max)), (int(u_min), int(v_min)), color, 4, tipLength=0.2)
+            cv2.arrowedLine(img_output_notxt, (int(u_max), int(v_max)), (int(u_min), int(v_min)), color, 4,
+                            tipLength=0.2)
             cv2.putText(img_output, 'yaw_box_anno: {:.2f} deg'.format(np.rad2deg(yaw_box_sensor)),
                         (int(u_txt), int(v_txt) + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             cv2.putText(img_output, 'yaw_wheel_dir: {:.2f} deg'.format(np.rad2deg(box_sensor.wheel_yaw)),
                         (int(u_txt), int(v_txt) + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-    return Image.fromarray(np.uint8(img_output)).convert("RGB")
+    return Image.fromarray(np.uint8(img_output)).convert("RGB"), Image.fromarray(np.uint8(img_output_notxt)).convert(
+        "RGB")
 
 
-def save_img(img, img_path):
+def save_img(img, img_notxt, img_path, img_path_notxt):
     img.save(img_path)
+    img_notxt.save(img_path_notxt)
 
 
 def get_img_wheel_path(img_name, cam_sensor):
@@ -174,8 +179,10 @@ def get_img_wheel_path(img_name, cam_sensor):
     if not os.path.exists(img_wheel_dir):
         os.makedirs(img_wheel_dir)
     img_wheel_name = img_name + '_wheel.jpg'
+    img_wheel_name_notxt = img_name + '_wheel_notxt.jpg'
     img_wheel_path = os.path.join(img_wheel_dir, img_wheel_name)
-    return img_wheel_path
+    img_wheel_path_notxt = os.path.join(img_wheel_dir, img_wheel_name_notxt)
+    return img_wheel_path, img_wheel_path_notxt
 
 
 def draw_boxes_3d(img, boxes_3d, calibrated_sensor_data, colors_map):
@@ -658,9 +665,9 @@ def main():
                 img = draw_boxes_3d(img, boxes_3d_sensor_veh, calibrated_sensor_data, colors_map=colors_map)
                 img = draw_wheels(img, annos_wheel_tot[img_name], boxes_3d_sensor_veh,
                                   colors_map=colors_map)
-                img = draw_wheel_direction(img, boxes_3d_sensor_filtering)
-                img_wheel_path = get_img_wheel_path(img_name, cam_sensor)
-                save_img(img, img_wheel_path)
+                img, img_notxt = draw_wheel_direction(img, boxes_3d_sensor_filtering)
+                img_wheel_path, img_wheel_path_notxt = get_img_wheel_path(img_name, cam_sensor)
+                save_img(img, img_notxt, img_wheel_path, img_wheel_path_notxt)
         save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict, cam_sensor,
                   json_wheel_paths)
 
