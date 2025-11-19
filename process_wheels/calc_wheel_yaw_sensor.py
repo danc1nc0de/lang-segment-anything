@@ -146,12 +146,17 @@ def update_wheel_direction_dict(wheel_direction_dict, boxes_3d_sensor, img_name,
             wheel_direction_dict[img_name][box_3d_sensor.token]['wheel_token'] = box_3d_sensor.wheel_token
 
 
-def draw_wheel_direction(img, boxes_3d_sensor, color=COLOR_GREEN):
+def draw_wheel_direction(img, boxes_3d_sensor, calibrated_sensor_data, color=COLOR_GREEN):
+    cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
     img_output = np.asarray(img).copy()
     img_output_notxt = np.asarray(img).copy()
     for box_sensor in boxes_3d_sensor:
         yaw_box_sensor, _, _ = R.from_matrix(box_sensor.rotation_matrix).as_euler('zyx', degrees=False)
         if box_sensor.wheel_direction_valid:
+            # draw 3d box fix
+            # box_sensor_fix = finetune_box_using_wheel_yaw(box_sensor)
+            # img_output = draw_box_3d(img_output, box_sensor_fix, cam_intrinsic, color)
+            # img_output_notxt = draw_box_3d(img_output_notxt, box_sensor_fix, cam_intrinsic, color)
             # draw line for ground point
             u_min = box_sensor.wheel_ground_point[0]
             v_min = box_sensor.wheel_ground_point[1]
@@ -185,25 +190,31 @@ def get_img_wheel_path(img_name, cam_sensor):
     return img_wheel_path, img_wheel_path_notxt
 
 
+def draw_box_3d(img, box_sensor, cam_intrinsic, color):
+    img_output = img.copy()
+    box_corners = view_points(box_sensor.corners(), cam_intrinsic, normalize=True)[:2, :]
+    for i in range(4):
+        cv2.line(img_output,
+                 (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
+                 (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
+                 color, 2)
+        cv2.line(img_output,
+                 (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
+                 (int(box_corners.T[(i + 1) % 4][0]), int(box_corners.T[(i + 1) % 4][1])),
+                 color, 2)
+        cv2.line(img_output,
+                 (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
+                 (int(box_corners.T[(i + 1) % 4 + 4][0]), int(box_corners.T[(i + 1) % 4 + 4][1])),
+                 color, 2)
+    return img_output
+
+
 def draw_boxes_3d(img, boxes_3d, calibrated_sensor_data, colors_map):
     img_output = np.asarray(img).copy()
     cam_intrinsic = np.array(calibrated_sensor_data['camera_intrinsic'])
     for idx, box in enumerate(boxes_3d):
         color = colors_map[idx]
-        box_corners = view_points(box.corners(), cam_intrinsic, normalize=True)[:2, :]
-        for i in range(4):
-            cv2.line(img_output,
-                     (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
-                     (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
-                     color, 2)
-            cv2.line(img_output,
-                     (int(box_corners.T[i][0]), int(box_corners.T[i][1])),
-                     (int(box_corners.T[(i + 1) % 4][0]), int(box_corners.T[(i + 1) % 4][1])),
-                     color, 2)
-            cv2.line(img_output,
-                     (int(box_corners.T[i + 4][0]), int(box_corners.T[i + 4][1])),
-                     (int(box_corners.T[(i + 1) % 4 + 4][0]), int(box_corners.T[(i + 1) % 4 + 4][1])),
-                     color, 2)
+        img_output = draw_box_3d(img_output, box, cam_intrinsic, color)
     return Image.fromarray(np.uint8(img_output)).convert("RGB")
 
 
@@ -250,10 +261,9 @@ def finetune_box_using_wheel_yaw(box):
     x, y, z = box_output.center
 
     wheel_yaw = box.wheel_yaw
-    wheel_pitch = np.arctan2(box.wheel_direction[2], np.abs(box.wheel_direction[0]))
     box_orientation = Quaternion(R.from_matrix(box_output.orientation.rotation_matrix).as_quat(scalar_first=True))
     box_yaw, box_pitch, box_roll = R.from_matrix(box_output.rotation_matrix).as_euler('zyx', degrees=False)
-    rotation_quat = R.from_euler('zyx', [wheel_yaw, wheel_pitch, box_roll], degrees=False).as_quat(scalar_first=True)
+    rotation_quat = R.from_euler('zyx', [wheel_yaw, box_pitch, box_roll], degrees=False).as_quat(scalar_first=True)
 
     box_output.translate(-np.array([x, y, z]))
     box_output.rotate(box_orientation.inverse)
@@ -669,7 +679,7 @@ def main():
                 img = draw_boxes_3d(img, boxes_3d_sensor_veh, calibrated_sensor_data, colors_map=colors_map)
                 img = draw_wheels(img, annos_wheel_tot[img_name], boxes_3d_sensor_veh,
                                   colors_map=colors_map)
-                img, img_notxt = draw_wheel_direction(img, boxes_3d_sensor_filtering)
+                img, img_notxt = draw_wheel_direction(img, boxes_3d_sensor_filtering, calibrated_sensor_data)
                 img_wheel_path, img_wheel_path_notxt = get_img_wheel_path(img_name, cam_sensor)
                 save_img(img, img_notxt, img_wheel_path, img_wheel_path_notxt)
         save_json(wheel_direction_dict, delta_box_img_corners_dict, delta_wheel_img_corners_dict, cam_sensor,
