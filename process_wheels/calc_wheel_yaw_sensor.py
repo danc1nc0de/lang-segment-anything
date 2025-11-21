@@ -633,8 +633,8 @@ def main():
     nusc = NuScenes(version=VERSION, dataroot=DATA_ROOT, verbose=True)
     for cam_sensor in tqdm(CAM_SENSORS, desc="cam_sensor"):
         json_wheel_paths, flag_path_exists = get_save_json_path(cam_sensor)
-        # if flag_path_exists:
-        #     continue
+        if flag_path_exists:
+            continue
         annos_wheel_tot = load_json_wheel(cam_sensor)
         annos_wheel = load_json_wheel(cam_sensor)
         wheel_direction_dict = {}
