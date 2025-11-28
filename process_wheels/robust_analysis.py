@@ -192,7 +192,7 @@ def process_cmp(delta_box_img_corners_dict, delta_wheel_img_corners_dict, nusc):
         fig_wheel_ax.scatter(u_wheel_img_corner_lst, v_wheel_img_corner_lst,
                              delta_yaw_ego_wheel_lst,
                              c=delta_yaw_ego_wheel_lst,
-                             cmap='viridis')
+                             cmap='viridis',s=200)
 
         xticks = fig_box_ax_u.get_xticks()
         fig_box_ax_u.set_xticklabels([f"{float(d)}°" for d in xticks])
@@ -212,10 +212,19 @@ def process_cmp(delta_box_img_corners_dict, delta_wheel_img_corners_dict, nusc):
 
         fig_box_ax_u.grid(True, linestyle='--', alpha=0.5)
         fig_box_ax_v.grid(True, linestyle='--', alpha=0.5)
+        fig_wheel_ax.grid(True, linestyle='--', alpha=0.5)
 
-        fig_wheel_ax.set_xlabel(r'$\Delta x_i$')
-        fig_wheel_ax.set_ylabel(r'$\Delta y_i$')
-        fig_wheel_ax.set_zlabel(r'$\Delta \theta$')
+        fig_wheel_ax.locator_params(axis='x', nbins=5)  # 将x轴刻度减少到5个
+        fig_wheel_ax.locator_params(axis='y', nbins=5)  # 将y轴刻度减少到5个
+        # fig_wheel_ax.locator_params(axis='z', nbins=5)  # 将z轴刻度减少到5个
+
+        fig_wheel_ax.tick_params(axis='x', labelsize=26, pad=10)  # 修改x轴刻度标签字体大小
+        fig_wheel_ax.tick_params(axis='y', labelsize=26, pad=10)  # 修改y轴刻度标签字体大小
+        fig_wheel_ax.tick_params(axis='z', labelsize=26, pad=25)  # 修改z轴刻度标签字体大小
+
+        fig_wheel_ax.set_xlabel(r'$\Delta x_i$', fontsize=26, labelpad=26)
+        fig_wheel_ax.set_ylabel(r'$\Delta y_i$', fontsize=26, labelpad=26)
+        fig_wheel_ax.set_zlabel(r'$\Delta \theta$', fontsize=26, labelpad=55)
         fig_wheel_ax.view_init(elev=30, azim=150)
 
         # 显示图形
