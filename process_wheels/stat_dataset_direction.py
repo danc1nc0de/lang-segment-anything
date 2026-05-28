@@ -107,7 +107,7 @@ def main():
     plt.xticks(xticks, [f"{d}°" for d in xticks])
     plt.xlabel("Difference in yaw angle")
     plt.ylabel("Counts")
-    plt.title(VERSION)
+    # plt.title(VERSION)
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.show()
 
